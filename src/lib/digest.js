@@ -6,7 +6,7 @@
  * Sleeping tabs dominate this on a long-running profile: Chrome's memory saver
  * discards background tabs, and a discarded tab has no live page to read.
  */
-function explainSkips(info, settings) {
+function explainSkips(info, settings, unmeasured) {
   const parts = [];
   if (info.asleep) {
     parts.push(
@@ -14,10 +14,22 @@ function explainSkips(info, settings) {
         (settings.wakeSleepingTabs ? '' : '. Enable "Wake sleeping tabs" in Settings to reload and read them'),
     );
   }
+  if (info.wakeFailed) parts.push(`${info.wakeFailed} would not come back when reloaded`);
   if (info.restricted) parts.push(`${info.restricted} are pages extensions may not read, such as PDFs or the Chrome Web Store`);
   if (info.loading) parts.push(`${info.loading} were still loading`);
   if (info.timedOut) parts.push(`${info.timedOut} took too long to read`);
   if (info.pastDeadline) parts.push(`${info.pastDeadline} were past the run's time limit`);
+
+  // Tabs we read successfully can still lack a usable signal — a page with a
+  // handful of words and no media gives nothing to measure. Account for them
+  // explicitly rather than leaving the numbers not adding up.
+  const accountedFor = parts.length
+    ? info.asleep + info.wakeFailed + info.restricted + info.loading + info.timedOut + info.pastDeadline
+    : 0;
+  const thin = Math.max(0, unmeasured - accountedFor);
+  if (thin) {
+    parts.push(`${thin} were read but had too little text or media on the page to measure`);
+  }
 
   if (!parts.length) return '';
   return `Of those: ${parts.join('; ')}.`;
@@ -68,8 +80,15 @@ export async function runAnalysis(opts = {}) {
     report.warnings = [
       ...report.warnings,
       settings.readPageText
-        ? `${head} ${explainSkips(scrapeInfo, settings)}`
+        ? `${head} ${explainSkips(scrapeInfo, settings, report.totals.unmeasured)}`
         : `${head} Turn on "Read page text" in Settings to estimate from real word counts and video lengths; without it a 45-minute video and a 3-minute one both score the same flat guess.`,
+    ];
+  }
+
+  if (scrapeInfo.woken > 0) {
+    report.warnings = [
+      ...report.warnings,
+      `Reloaded ${scrapeInfo.woken} sleeping tab(s) in order to read them.`,
     ];
   }
 

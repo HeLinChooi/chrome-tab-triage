@@ -50,8 +50,45 @@ export const SCRAPE_TIMEOUT_MS = 3000;
 /** How long the whole scraping phase may take before we proceed with what we have. */
 export const SCRAPE_DEADLINE_MS = 45000;
 
+/** Waking tabs means a page load each, so that phase gets a longer budget. */
+export const WAKE_DEADLINE_MS = 120000;
+
 /** Tabs scraped at once. Injecting into every tab simultaneously wakes them all. */
 export const SCRAPE_CONCURRENCY = 6;
+
+/** How long to give a discarded tab to reload before giving up on it. */
+export const WAKE_TIMEOUT_MS = 10000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Reload a discarded tab and wait for it to come back.
+ *
+ * `executeScript` does NOT wake a discarded tab — there is no renderer for it to
+ * run in, so the call simply fails. Waking one means reloading it explicitly and
+ * waiting for the load to finish, which is why this is opt-in: it costs a page
+ * load per tab and re-runs whatever those pages do on startup.
+ */
+async function wakeTab(tabId, timeoutMs = WAKE_TIMEOUT_MS) {
+  try {
+    await chrome.tabs.reload(tabId);
+  } catch {
+    return false; // gone, or Chrome refused
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    let tab;
+    try {
+      tab = await chrome.tabs.get(tabId);
+    } catch {
+      return false; // closed while we waited
+    }
+    if (!tab.discarded && tab.status === 'complete') return true;
+  }
+  return false;
+}
 
 /**
  * Enrich tabs with page text where we are allowed and able.
@@ -70,12 +107,16 @@ export const SCRAPE_CONCURRENCY = 6;
  */
 export async function enrichWithContent(tabs, opts = {}) {
   if (!(await hasPageAccess())) {
-    return { tabs, scraped: 0, cached: 0, asleep: 0, loading: 0, restricted: 0, timedOut: 0, pastDeadline: 0, skipped: 0 };
+    return {
+      tabs, scraped: 0, cached: 0, asleep: 0, loading: 0, restricted: 0,
+      timedOut: 0, pastDeadline: 0, woken: 0, wakeFailed: 0, skipped: 0,
+    };
   }
 
   const { token, onProgress } = opts;
   const timeoutMs = opts.timeoutMs || SCRAPE_TIMEOUT_MS;
-  const deadline = Date.now() + (opts.deadlineMs || SCRAPE_DEADLINE_MS);
+  const defaultDeadline = opts.wakeSleeping ? WAKE_DEADLINE_MS : SCRAPE_DEADLINE_MS;
+  const deadline = Date.now() + (opts.deadlineMs || defaultDeadline);
 
   const stored = await chrome.storage.local.get(STORAGE_KEYS.contentCache);
   const cache = pruneCache(stored[STORAGE_KEYS.contentCache] || {});
@@ -91,10 +132,14 @@ export async function enrichWithContent(tabs, opts = {}) {
     restricted: 0,
     timedOut: 0,
     pastDeadline: 0,
+    woken: 0,
+    wakeFailed: 0,
   };
   let done = 0;
 
-  await mapLimit(tabs, SCRAPE_CONCURRENCY, async (tab) => {
+  const concurrency = opts.wakeSleeping ? 3 : SCRAPE_CONCURRENCY;
+
+  await mapLimit(tabs, concurrency, async (tab) => {
     done += 1;
     if (onProgress) onProgress({ phase: 'reading', done, total: tabs.length });
 
@@ -113,15 +158,22 @@ export async function enrichWithContent(tabs, opts = {}) {
       return;
     }
 
-    // A sleeping tab has no live page to read. Reading it means reloading it,
-    // which on a memory-saver profile can mean reloading most of your tabs — so
-    // it is opt-in rather than the default.
+    // A sleeping tab has no live page to read, and no renderer for an injected
+    // script to run in. Reading one means reloading it first.
     const asleep = tab.discarded || tab.status === 'unloaded';
-    if (asleep && !opts.wakeSleeping) {
-      stats.asleep += 1;
-      return;
-    }
-    if (!asleep && tab.status !== 'complete') {
+    if (asleep) {
+      if (!opts.wakeSleeping) {
+        stats.asleep += 1;
+        return;
+      }
+      if (onProgress) onProgress({ phase: 'waking', done, total: tabs.length });
+      const awake = await wakeTab(tab.id);
+      if (!awake) {
+        stats.wakeFailed += 1;
+        return;
+      }
+      stats.woken += 1;
+    } else if (tab.status !== 'complete') {
       stats.loading += 1;
       return;
     }
@@ -152,5 +204,9 @@ export async function enrichWithContent(tabs, opts = {}) {
   });
 
   await chrome.storage.local.set({ [STORAGE_KEYS.contentCache]: pruneCache(cache, now) });
-  return { tabs, ...stats, skipped: stats.asleep + stats.loading + stats.restricted + stats.pastDeadline };
+  return {
+    tabs,
+    ...stats,
+    skipped: stats.asleep + stats.loading + stats.restricted + stats.pastDeadline + stats.wakeFailed,
+  };
 }

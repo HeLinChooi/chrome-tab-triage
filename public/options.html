@@ -69,7 +69,7 @@
         <input type="checkbox" id="wakeSleepingTabs" />
         <span>
           Wake sleeping tabs to read them
-          <span class="muted tiny block-sub">Chrome discards background tabs to save memory, and a discarded tab has no page left to read — on a long-running profile that is usually most of them. Reloading them gives accurate estimates, but it costs bandwidth, makes runs slower, and re-runs whatever those pages do on load.</span>
+          <span class="muted tiny block-sub">Chrome discards background tabs to save memory, and a discarded tab has no page left to read — on a long-running profile that is usually most of them. This reloads each one so it can be measured. That means a page load per sleeping tab: it costs bandwidth, makes a run take a minute or two instead of seconds, and re-runs whatever those pages do on load.</span>
         </span>
       </label>
       <label class="field">

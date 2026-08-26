@@ -96,6 +96,11 @@ usually dominate, because Chrome's memory saver discards background tabs and a
 discarded tab has no live page to read. **Wake sleeping tabs** in Settings reloads them
 so they can be measured, at the cost of bandwidth and slower runs.
 
+Waking means an explicit `chrome.tabs.reload` followed by waiting for the load to
+finish. `executeScript` does not wake a discarded tab — there is no renderer for the
+injected function to run in, so the call just fails. That phase runs at lower
+concurrency with a longer deadline, since each wake is a full page load.
+
 The service worker is also kept alive for the duration of a run. MV3 tears down an
 idle worker, and a long run is exactly when that hurts: the worker dies, the response
 never arrives, and the caller sees *"the message channel closed before a response was

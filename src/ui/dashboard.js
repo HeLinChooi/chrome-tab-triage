@@ -526,6 +526,10 @@ chrome.runtime.onMessage.addListener((message) => {
     els.progress.textContent = `Reading pages ${message.done}/${message.total}…`;
     return;
   }
+  if (message.phase === 'waking') {
+    els.progress.textContent = `Waking sleeping tabs ${message.done}/${message.total}…`;
+    return;
+  }
   els.progress.textContent = PHASE_LABEL[message.phase] || '';
 });
 
