@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Tab Triage settings</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <div class="wrap">
+    <h1>Tab Triage</h1>
+    <p class="muted">Estimates how long it would take to clear your open tabs, and tells you every morning.</p>
+
+    <section class="card block">
+      <h2>Estimator</h2>
+      <label class="row">
+        <input type="radio" name="engine" value="local" />
+        <span>
+          <strong>Local heuristics</strong>
+          <span class="muted tiny block-sub">Rules over the URL, title, page length, and how long the tab has sat idle. Free, offline, nothing leaves this browser.</span>
+        </span>
+      </label>
+      <label class="row">
+        <input type="radio" name="engine" value="claude" />
+        <span>
+          <strong>Claude</strong>
+          <span class="muted tiny block-sub">Better grouping and calibration. Sends tab titles, URLs, and (if enabled below) a short page excerpt to the Anthropic API using your own key, and is billed to your account.</span>
+        </span>
+      </label>
+
+      <div id="claude-settings" class="nested">
+        <label class="field">
+          <span>API key</span>
+          <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off" spellcheck="false" />
+        </label>
+        <p class="muted tiny">
+          Stored with <code>chrome.storage.local</code> on this machine and never synced. Extension storage is not
+          encrypted — any code you grant access to this profile can read it. Create a dedicated key at
+          console.anthropic.com and revoke it if you uninstall.
+        </p>
+        <label class="field">
+          <span>Model</span>
+          <input type="text" id="model" spellcheck="false" />
+        </label>
+      </div>
+    </section>
+
+    <section class="card block">
+      <h2>What to look at</h2>
+      <label class="field">
+        <span>Scope</span>
+        <select id="scope">
+          <option value="all">All windows in this profile</option>
+          <option value="currentWindow">Current window only</option>
+        </select>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="ignorePinned" />
+        <span>Skip pinned tabs<span class="muted tiny block-sub">Pinned tabs are usually tools, not backlog.</span></span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="readPageText" />
+        <span>
+          Read page text for accurate estimates
+          <span class="muted tiny block-sub">Asks for permission to read the pages you have open, so reading time can come from the real word count and video length instead of a guess. Pages are read on demand during a summary — there is no always-on content script.</span>
+        </span>
+      </label>
+      <label class="field">
+        <span>Reading speed</span>
+        <span class="inline"><input type="number" id="wpm" min="60" max="800" step="10" /> words per minute</span>
+      </label>
+    </section>
+
+    <section class="card block">
+      <h2>Morning digest</h2>
+      <label class="row">
+        <input type="checkbox" id="digestEnabled" />
+        <span>Send a daily summary notification</span>
+      </label>
+      <label class="field">
+        <span>Time</span>
+        <input type="time" id="digestTime" />
+      </label>
+      <label class="field">
+        <span>Deliver as</span>
+        <select id="digestDelivery">
+          <option value="notification">A notification</option>
+          <option value="tab">A dashboard tab</option>
+          <option value="both">Both</option>
+        </select>
+      </label>
+      <p class="muted tiny">
+        macOS and Windows can silently swallow Chrome notifications even when Chrome thinks it sent one.
+        If the digest never shows up, switch to a dashboard tab — it cannot be suppressed. Notification
+        mode already falls back to a tab whenever Chrome reports a failure.
+      </p>
+      <p id="nextRun" class="muted tiny"></p>
+      <div class="action-row">
+        <button id="testDigest">Send one now</button>
+        <span id="digestStatus" class="muted tiny"></span>
+      </div>
+    </section>
+
+    <div class="footer-row action-row">
+      <button id="save" class="primary">Save</button>
+      <span id="saveStatus" class="muted tiny"></span>
+    </div>
+  </div>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

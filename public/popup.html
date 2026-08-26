@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Tab Triage</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <div id="total" class="bignum">—</div>
+      <div id="sub" class="muted tiny">No summary yet</div>
+    </div>
+    <button id="analyze" class="primary">Summarize now</button>
+  </header>
+
+  <div id="warnings"></div>
+  <div id="groups"></div>
+
+  <footer>
+    <button id="dashboard" class="link">Full dashboard</button>
+    <button id="options" class="link">Settings</button>
+  </footer>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "tab-triage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome extension that estimates how long it takes to clear your open tabs, groups them, and delivers a morning digest.",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "icons": "node scripts/gen-icons.mjs",
+    "test": "node --test test/*.test.js",
+    "zip": "npm run build && cd dist && zip -qr ../tab-triage.zip . && cd .. && echo wrote tab-triage.zip"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0"
+  }
+}
