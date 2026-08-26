@@ -69,7 +69,9 @@ export const SCRAPE_CONCURRENCY = 6;
  * estimate, which the report reports as unmeasured.
  */
 export async function enrichWithContent(tabs, opts = {}) {
-  if (!(await hasPageAccess())) return { tabs, scraped: 0, cached: 0, skipped: 0, timedOut: 0 };
+  if (!(await hasPageAccess())) {
+    return { tabs, scraped: 0, cached: 0, asleep: 0, loading: 0, restricted: 0, timedOut: 0, pastDeadline: 0, skipped: 0 };
+  }
 
   const { token, onProgress } = opts;
   const timeoutMs = opts.timeoutMs || SCRAPE_TIMEOUT_MS;
@@ -79,10 +81,17 @@ export async function enrichWithContent(tabs, opts = {}) {
   const cache = pruneCache(stored[STORAGE_KEYS.contentCache] || {});
   const now = Date.now();
 
-  let scraped = 0;
-  let cached = 0;
-  let skipped = 0;
-  let timedOut = 0;
+  // Counted by reason, because "could not be read" on its own tells the user
+  // nothing about whether to act on it.
+  const stats = {
+    scraped: 0,
+    cached: 0,
+    asleep: 0,
+    loading: 0,
+    restricted: 0,
+    timedOut: 0,
+    pastDeadline: 0,
+  };
   let done = 0;
 
   await mapLimit(tabs, SCRAPE_CONCURRENCY, async (tab) => {
@@ -95,14 +104,25 @@ export async function enrichWithContent(tabs, opts = {}) {
     const hit = cache[key];
     if (hit && now - hit.scrapedAt < CONTENT_TTL_MS) {
       tab.content = hit;
-      cached += 1;
+      stats.cached += 1;
       return;
     }
 
-    // A tab that is asleep or still loading cannot be read without waking it,
-    // and waking the whole profile is exactly what makes a run take minutes.
-    if (tab.discarded || tab.status !== 'complete' || Date.now() > deadline) {
-      skipped += 1;
+    if (Date.now() > deadline) {
+      stats.pastDeadline += 1;
+      return;
+    }
+
+    // A sleeping tab has no live page to read. Reading it means reloading it,
+    // which on a memory-saver profile can mean reloading most of your tabs — so
+    // it is opt-in rather than the default.
+    const asleep = tab.discarded || tab.status === 'unloaded';
+    if (asleep && !opts.wakeSleeping) {
+      stats.asleep += 1;
+      return;
+    }
+    if (!asleep && tab.status !== 'complete') {
+      stats.loading += 1;
       return;
     }
 
@@ -116,19 +136,21 @@ export async function enrichWithContent(tabs, opts = {}) {
     const content = await withTimeout(attempt, timeoutMs, TIMED_OUT);
 
     if (content === TIMED_OUT) {
-      timedOut += 1;
+      stats.timedOut += 1;
       return;
     }
     if (!content) {
-      skipped += 1;
+      // Chrome refused the injection: PDF viewer, the Web Store, a restricted
+      // origin, or the tab went away mid-run.
+      stats.restricted += 1;
       return;
     }
 
     tab.content = content;
     cache[key] = content;
-    scraped += 1;
+    stats.scraped += 1;
   });
 
   await chrome.storage.local.set({ [STORAGE_KEYS.contentCache]: pruneCache(cache, now) });
-  return { tabs, scraped, cached, skipped, timedOut };
+  return { tabs, ...stats, skipped: stats.asleep + stats.loading + stats.restricted + stats.pastDeadline };
 }

@@ -1,5 +1,28 @@
 /** Orchestration: tabs in, finished report out. */
 
+/**
+ * Turn the scrape counters into a sentence that says what to do about it.
+ *
+ * Sleeping tabs dominate this on a long-running profile: Chrome's memory saver
+ * discards background tabs, and a discarded tab has no live page to read.
+ */
+function explainSkips(info, settings) {
+  const parts = [];
+  if (info.asleep) {
+    parts.push(
+      `${info.asleep} were asleep — Chrome discards background tabs to save memory, and a discarded tab has no page left to read` +
+        (settings.wakeSleepingTabs ? '' : '. Enable "Wake sleeping tabs" in Settings to reload and read them'),
+    );
+  }
+  if (info.restricted) parts.push(`${info.restricted} are pages extensions may not read, such as PDFs or the Chrome Web Store`);
+  if (info.loading) parts.push(`${info.loading} were still loading`);
+  if (info.timedOut) parts.push(`${info.timedOut} took too long to read`);
+  if (info.pastDeadline) parts.push(`${info.pastDeadline} were past the run's time limit`);
+
+  if (!parts.length) return '';
+  return `Of those: ${parts.join('; ')}.`;
+}
+
 import { collectTabs, enrichWithContent } from './collect.js';
 import { estimate } from './estimate.js';
 import { buildReport } from './group.js';
@@ -20,7 +43,11 @@ export async function runAnalysis(opts = {}) {
 
   let scrapeInfo = { scraped: 0, cached: 0, skipped: 0, timedOut: 0 };
   if (settings.readPageText) {
-    scrapeInfo = await enrichWithContent(tabs, { token, onProgress });
+    scrapeInfo = await enrichWithContent(tabs, {
+      token,
+      onProgress,
+      wakeSleeping: settings.wakeSleepingTabs,
+    });
     if (token) token.throwIfCancelled();
   }
 
@@ -32,14 +59,17 @@ export async function runAnalysis(opts = {}) {
   // What was actually sent to and returned by the API, for the transcript panel.
   report.transcript = transcript;
 
-  // Say plainly when estimates rest on rules of thumb instead of measurements.
+  // Say plainly when estimates rest on rules of thumb instead of measurements,
+  // and name the actual reason rather than listing every possibility.
   if (report.totals.unmeasured > 0) {
     const share = Math.round((report.totals.unmeasured / report.totals.tabs) * 100);
+    const head = `${report.totals.unmeasured} of ${report.totals.tabs} tabs (${share}%) were estimated from per-site rules rather than the real page.`;
+
     report.warnings = [
       ...report.warnings,
       settings.readPageText
-        ? `${report.totals.unmeasured} of ${report.totals.tabs} tabs (${share}%) could not be read — discarded, still loading, or a restricted page — so their estimates come from per-site rules rather than the real page length.`
-        : `${report.totals.unmeasured} of ${report.totals.tabs} tabs (${share}%) were estimated from the title and URL alone. Turn on "Read page text" in Settings to estimate from real word counts and video lengths; without it a 45-minute video and a 3-minute one both score the same flat guess.`,
+        ? `${head} ${explainSkips(scrapeInfo, settings)}`
+        : `${head} Turn on "Read page text" in Settings to estimate from real word counts and video lengths; without it a 45-minute video and a 3-minute one both score the same flat guess.`,
     ];
   }
 
@@ -53,12 +83,7 @@ export async function runAnalysis(opts = {}) {
     timedOut: scrapeInfo.timedOut,
   };
 
-  if (scrapeInfo.timedOut > 0) {
-    report.warnings = [
-      ...report.warnings,
-      `${scrapeInfo.timedOut} tab(s) took too long to read and were skipped. Heavy pages and sleeping tabs are the usual cause.`,
-    ];
-  }
+
 
   if (opts.persist !== false) await saveLastReport(report);
   return report;

@@ -6,7 +6,7 @@ const API_ORIGIN = { origins: ['https://api.anthropic.com/*'] };
 
 const els = {};
 for (const id of [
-  'apiKey', 'model', 'scope', 'ignorePinned', 'readPageText', 'wpm',
+  'apiKey', 'model', 'scope', 'ignorePinned', 'readPageText', 'wakeSleepingTabs', 'wpm',
   'digestEnabled', 'digestTime', 'digestDelivery', 'save', 'saveStatus', 'digestStatus',
   'nextRun', 'testDigest',
   'claude-settings',
@@ -44,6 +44,7 @@ async function load() {
   els.scope.value = settings.scope;
   els.ignorePinned.checked = settings.ignorePinned;
   els.readPageText.checked = settings.readPageText && (await chrome.permissions.contains(ALL_URLS));
+  els.wakeSleepingTabs.checked = settings.wakeSleepingTabs;
   els.wpm.value = settings.wpm;
   els.digestEnabled.checked = settings.digestEnabled;
   els.digestTime.value = settings.digestTime;
@@ -129,6 +130,7 @@ async function persist() {
     scope: els.scope.value,
     ignorePinned: els.ignorePinned.checked,
     readPageText: els.readPageText.checked,
+    wakeSleepingTabs: els.wakeSleepingTabs.checked,
     wpm: Number(els.wpm.value) || DEFAULTS.wpm,
     digestEnabled: els.digestEnabled.checked,
     digestTime: els.digestTime.value || DEFAULTS.digestTime,

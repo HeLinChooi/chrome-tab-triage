@@ -127,13 +127,19 @@
 /* --- Quick wins ------------------------------------------------------- */
 
 .quickwins {
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  border-left: 3px solid var(--accent);
+}
+.qw-head {
   display: flex;
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
-  padding: 14px 20px;
-  margin-bottom: 20px;
-  border-left: 3px solid var(--accent);
+}
+.qw-list {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
 }
 .quickwins .qw-label { font-weight: 600; font-size: 13px; }
 .quickwins .qw-detail { color: var(--muted); font-size: 12.5px; flex: 1 1 200px; }

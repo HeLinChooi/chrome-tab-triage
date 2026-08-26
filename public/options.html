@@ -65,6 +65,13 @@
           <span class="muted tiny block-sub">Asks for permission to read the pages you have open, so reading time can come from the real word count and video length instead of a guess. Pages are read on demand during a summary — there is no always-on content script. Unchecking this hands the permission back to Chrome right away — confirm it yourself at chrome://extensions → Details → Site access.</span>
         </span>
       </label>
+      <label class="row">
+        <input type="checkbox" id="wakeSleepingTabs" />
+        <span>
+          Wake sleeping tabs to read them
+          <span class="muted tiny block-sub">Chrome discards background tabs to save memory, and a discarded tab has no page left to read — on a long-running profile that is usually most of them. Reloading them gives accurate estimates, but it costs bandwidth, makes runs slower, and re-runs whatever those pages do on load.</span>
+        </span>
+      </label>
       <label class="field">
         <span>Reading speed</span>
         <span class="inline"><input type="number" id="wpm" min="60" max="800" step="10" /> words per minute</span>

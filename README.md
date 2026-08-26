@@ -91,7 +91,10 @@ large profile is genuinely slow. Three limits keep that bounded, in `src/lib/col
 
 Tabs that are discarded or still loading are skipped rather than woken. Anything
 skipped or timed out simply falls back to a rule-of-thumb estimate and is counted as
-unmeasured in the report.
+unmeasured in the report, and the report says which reason applied — sleeping tabs
+usually dominate, because Chrome's memory saver discards background tabs and a
+discarded tab has no live page to read. **Wake sleeping tabs** in Settings reloads them
+so they can be measured, at the cost of bandwidth and slower runs.
 
 The service worker is also kept alive for the duration of a run. MV3 tears down an
 idle worker, and a long run is exactly when that hurts: the worker dies, the response
@@ -104,6 +107,21 @@ On top of that, every run is cancellable: the dashboard shows live progress
 ("Reading pages 34/210…") and a **Cancel** button while one is in flight, and only one
 run may be active at a time. Cancelling keeps the previous summary rather than leaving
 you with nothing.
+
+## What the Claude engine costs
+
+Measured against the real payload, page text adds roughly a third to the input:
+
+| Tabs | Titles + URLs only | With page text |
+|---|---|---|
+| 23 | ~$0.036 | ~$0.046 (+30%) |
+| 100 | ~$0.11 | ~$0.16 (+42%) |
+| 400 | ~$0.41 | ~$0.59 (+46%) |
+
+It does not explode, for two reasons: the page excerpt sent per tab is capped at 300
+characters, and at small tab counts the output tokens dominate the bill anyway. The
+transcript panel shows what each run actually cost and projects a month of daily
+digests, so the number is measured rather than assumed.
 
 ## Why the two engines can disagree
 

@@ -146,15 +146,19 @@ function attachTooltip(el, name, detail) {
 
 // --- Quick wins ---------------------------------------------------------
 
+let quickWinsOpen = false;
+
 function renderQuickWins() {
   const stale = report.items.filter((t) => t.stale);
   const dupes = duplicateTabs(report.items);
+  const byId = new Map(report.items.map((t) => [t.id, t]));
   const ids = new Set([...stale, ...dupes].map((t) => t.id));
+  const all = [...ids].map((id) => byId.get(id)).filter(Boolean);
 
   els.quickWins.hidden = ids.size === 0;
   if (!ids.size) return;
 
-  const minutes = report.items.filter((t) => ids.has(t.id)).reduce((sum, t) => sum + t.minutes, 0);
+  const minutes = all.reduce((sum, t) => sum + t.minutes, 0);
   const detail = [
     dupes.length ? pluralize(dupes.length, 'duplicate') : '',
     stale.length ? `${pluralize(stale.length, 'tab')} untouched for a month` : '',
@@ -163,23 +167,46 @@ function renderQuickWins() {
     .join(' · ');
 
   els.quickWins.innerHTML = '';
+
+  const head = document.createElement('div');
+  head.className = 'qw-head';
+
   const label = document.createElement('span');
   label.className = 'qw-label';
   label.textContent = `Quick wins — ${formatMinutes(minutes)}`;
+
   const info = document.createElement('span');
   info.className = 'qw-detail';
   info.textContent = detail;
 
+  // "Close all 3" is only a fair offer if you can see which three.
+  const review = document.createElement('button');
+  review.className = 'link';
+  review.textContent = quickWinsOpen ? 'hide these tabs' : `show these ${ids.size} tabs`;
+  review.addEventListener('click', () => {
+    quickWinsOpen = !quickWinsOpen;
+    renderQuickWins();
+  });
+
   const closeAll = document.createElement('button');
   closeAll.textContent = `Close all ${ids.size}`;
-  closeAll.addEventListener('click', guard(closeAll, 'Closing…', () => closeMany([...ids].map((id) => report.items.find((t) => t.id === id)))));
+  closeAll.addEventListener('click', guard(closeAll, 'Closing…', () => closeMany(all)));
 
-  els.quickWins.append(label, info, closeAll);
+  head.append(label, info, review, closeAll);
   if (dupes.length) {
     const closeDupes = document.createElement('button');
     closeDupes.textContent = `Close ${pluralize(dupes.length, 'duplicate')}`;
     closeDupes.addEventListener('click', guard(closeDupes, 'Closing…', () => closeMany(dupes)));
-    els.quickWins.appendChild(closeDupes);
+    head.appendChild(closeDupes);
+  }
+  els.quickWins.appendChild(head);
+
+  if (quickWinsOpen) {
+    const list = document.createElement('div');
+    list.className = 'qw-list';
+    const sorted = all.slice().sort((a, b) => b.minutes - a.minutes);
+    for (const tab of sorted) list.appendChild(tabRow(tab));
+    els.quickWins.appendChild(list);
   }
 }
 
@@ -309,11 +336,22 @@ function tabRow(tab) {
   return row;
 }
 
+const CONFIRM_PREVIEW = 8;
+
 async function closeMany(tabs) {
   const list = tabs.filter(Boolean);
   if (!list.length) return;
+
   const total = formatMinutes(list.reduce((sum, t) => sum + t.minutes, 0));
-  if (!confirm(`Close ${pluralize(list.length, 'tab')}? That clears ${total} of estimated work.`)) return;
+  // Name what is about to close. Closing tabs is not undoable from here.
+  const preview = list
+    .slice(0, CONFIRM_PREVIEW)
+    .map((t) => `  · ${t.title}`)
+    .join('\n');
+  const more = list.length > CONFIRM_PREVIEW ? `\n  … and ${list.length - CONFIRM_PREVIEW} more` : '';
+
+  const message = `Close ${pluralize(list.length, 'tab')}? That clears ${total} of estimated work.\n\n${preview}${more}`;
+  if (!confirm(message)) return;
   await send({ type: 'closeTabs', tabIds: list.map((t) => t.id) });
   await refresh();
 }
@@ -358,11 +396,15 @@ function renderTranscript() {
   if (t.rate) {
     const note = document.createElement('p');
     note.className = 'muted tiny';
+    // What one run costs matters less than what the habit costs.
+    const monthly = totals.costUsd * 30;
     note.textContent =
-      `Token counts are reported by the API and are exact. The cost is an estimate from a ` +
-      `rate table built into this extension — $${t.rate.input}/M input and $${t.rate.output}/M output, ` +
-      `list price as of ${t.rateAsOf}. It will drift if those prices change, and it does not ` +
-      `account for any discount on your account. Your Anthropic console is the source of truth.`;
+      `This run cost roughly $${totals.costUsd.toFixed(4)}. A daily digest at this size would be ` +
+      `about $${monthly.toFixed(2)} a month. Token counts are reported by the API and are exact; ` +
+      `the dollar figure is an estimate from a rate table built into this extension — ` +
+      `$${t.rate.input}/M input and $${t.rate.output}/M output, list price as of ${t.rateAsOf}. ` +
+      `It will drift if those prices change and it ignores any discount on your account. ` +
+      `Your Anthropic console is the source of truth.`;
     els.transcriptBody.appendChild(note);
   }
 
