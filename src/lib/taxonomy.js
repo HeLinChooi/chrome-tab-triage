@@ -118,7 +118,25 @@ const NAMED_HOSTS = {
   'youtube.com': 'YouTube',
   'chatgpt.com': 'ChatGPT',
   'claude.ai': 'Claude',
+  'figma.com': 'Figma',
+  'notion.so': 'Notion',
+  'linear.app': 'Linear',
+  'arxiv.org': 'arXiv',
+  'medium.com': 'Medium',
+  'reddit.com': 'Reddit',
+  'linkedin.com': 'LinkedIn',
+  'gitlab.com': 'GitLab',
+  'npmjs.com': 'npm',
+  'amazon.com': 'Amazon',
+  'x.com': 'X',
+  'twitter.com': 'X',
 };
+
+/** Fall back to the bare domain with its first letter capitalized. */
+function prettifyDomain(domain) {
+  if (!domain) return 'Other';
+  return domain.charAt(0).toUpperCase() + domain.slice(1);
+}
 
 export function siteLabel(url) {
   let host;
@@ -132,7 +150,7 @@ export function siteLabel(url) {
   if (NAMED_HOSTS[bare]) return NAMED_HOSTS[bare];
   const reg = registrableDomain(host);
   if (NAMED_HOSTS[reg]) return NAMED_HOSTS[reg];
-  return reg || 'Other';
+  return prettifyDomain(reg);
 }
 
 /**

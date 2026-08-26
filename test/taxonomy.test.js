@@ -15,6 +15,11 @@ test('siteLabel keeps meaningful subdomains distinct', () => {
   assert.equal(siteLabel('not a url'), 'Other');
 });
 
+test('unnamed domains fall back to a capitalized bare domain', () => {
+  assert.equal(siteLabel('https://some-startup.io/pricing'), 'Some-startup.io');
+  assert.equal(siteLabel('https://www.figma.com/design/x'), 'Figma');
+});
+
 test('a GitHub pull request is an action, not reference', () => {
   const { type } = classify({ url: 'https://github.com/acme/app/pull/42', title: 'Fix login' });
   assert.equal(type, 'act');

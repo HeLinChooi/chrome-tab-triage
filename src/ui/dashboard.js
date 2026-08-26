@@ -265,9 +265,17 @@ function tabRow(tab) {
       <button class="close">close</button>
     </span>`;
 
+  // Keep the column, drop the empty grey box: plenty of tabs have no icon.
   const icon = row.querySelector('.favicon');
-  if (tab.favIconUrl) icon.src = tab.favIconUrl;
-  icon.addEventListener('error', () => icon.removeAttribute('src'));
+  if (tab.favIconUrl) {
+    icon.src = tab.favIconUrl;
+    icon.addEventListener('error', () => {
+      icon.removeAttribute('src');
+      icon.style.visibility = 'hidden';
+    });
+  } else {
+    icon.style.visibility = 'hidden';
+  }
 
   row.querySelector('.title').textContent = tab.title;
   row.querySelector('.why').textContent = [tab.reason, formatAge(tab.lastAccessed, report.generatedAt)]
