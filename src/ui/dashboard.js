@@ -377,7 +377,7 @@ async function closeMany(tabs) {
 
 // --- Read log -----------------------------------------------------------
 
-const OUTCOME_ORDER = ['renderer suspended', 'timed out', 'nothing to measure', 'injection refused', 'would not wake', 'asleep', 'still loading', 'past deadline', 'cached', 'read'];
+const OUTCOME_ORDER = ['frozen', 'would not unfreeze', 'timed out', 'nothing to measure', 'injection refused', 'would not wake', 'asleep', 'still loading', 'past deadline', 'cached', 'read'];
 
 /**
  * Per-tab reading outcomes.

@@ -16,8 +16,10 @@ function explainSkips(info, settings, unmeasured) {
   }
   if (info.frozen) {
     parts.push(
-      `${info.frozen} had a suspended renderer — Chrome freezes background tabs, and a frozen tab runs no JavaScript, so nothing can read it` +
-        (settings.wakeSleepingTabs ? '' : '. Enable "Wake sleeping tabs" in Settings to reload and revive them'),
+      `${info.frozen} were frozen by Chrome — a frozen tab runs no JavaScript at all, so nothing can read it, and Chrome most often freezes tabs sitting in a collapsed tab group` +
+        (settings.reviveFrozenTabs
+          ? ', and they did not come back when activated'
+          : '. Expanding that group unfreezes them, or enable "Measure frozen tabs" in Settings to have them activated briefly'),
     );
   }
   if (info.wakeFailed) parts.push(`${info.wakeFailed} would not come back when reloaded`);
@@ -73,6 +75,7 @@ export async function runAnalysis(opts = {}) {
       token,
       onProgress,
       wakeSleeping: settings.wakeSleepingTabs,
+      reviveFrozen: settings.reviveFrozenTabs,
       ignoreCache: opts.ignoreCache,
     });
     if (token) token.throwIfCancelled();
@@ -103,7 +106,7 @@ export async function runAnalysis(opts = {}) {
   if (scrapeInfo.revived > 0) {
     report.warnings = [
       ...report.warnings,
-      `Revived ${scrapeInfo.revived} frozen tab(s) by reloading them so their pages could be read.`,
+      `Briefly activated ${scrapeInfo.revived} frozen tab(s) so their pages could be read, then restored your original tab.`,
     ];
   }
 

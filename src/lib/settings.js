@@ -8,6 +8,7 @@ export const DEFAULTS = {
   scope: 'all', // 'all' | 'currentWindow'
   readPageText: false, // requires the optional <all_urls> permission
   wakeSleepingTabs: false, // reload discarded tabs in order to read them
+  reviveFrozenTabs: false, // briefly activate frozen tabs so they can be read
   digestEnabled: true,
   digestTime: '08:30', // local time, 24h
   digestDelivery: 'notification', // 'notification' | 'tab' | 'both'

@@ -105,22 +105,35 @@ to the site.
 
 ### Frozen tabs
 
-Chrome freezes background tabs to save resources. A frozen tab is **not** discarded and
-still reports `status: "complete"`, but its renderer is suspended and executes no
-JavaScript — so an injected script is queued against a dead process and never runs.
-There is no error and no result, only silence.
+Chrome freezes background tabs to save resources — most often tabs sitting in a
+**collapsed tab group**. A frozen tab is not discarded and still reports
+`status: "complete"`, but its renderer is suspended and executes no JavaScript.
 
-The signature is unmistakable: **every affected tab consumes its entire timeout budget
-to the millisecond, while healthy tabs answer in about one.** If you ever see that
-pattern, the renderer is not slow, it is suspended, and no change to the injected code
-will help.
+`chrome.scripting.executeScript` against such a tab **neither resolves nor rejects.**
+The call is queued against the suspended renderer and returns only if the tab is later
+unfrozen. This is a known Chromium defect — [crbug 40901394][crbug] and
+[w3c/webextensions#527][w3c] — not something an extension can work around from inside
+the injected code.
 
-Reloading is the only way to get a renderer back, so the reader probes briefly
-(`PROBE_TIMEOUT_MS`, 1.5s — a healthy tab needs about 1ms, so a longer first wait buys
-nothing), and on silence reloads the tab and reads again. That revival needs **Wake
-sleeping tabs** enabled, because reloading a tab is a side effect the user has to opt
-into; without it, those tabs are reported as `renderer suspended` rather than silently
-counted as failures.
+[crbug]: https://issues.chromium.org/issues/40901394
+[w3c]: https://github.com/w3c/webextensions/issues/527
+
+The signature is unmistakable and worth recognising: **every affected tab consumes its
+entire timeout budget to the millisecond, while healthy tabs answer in about one.**
+That is silence, not slowness. No change to the reader — synchronous, timer-free,
+cheaper — can help, because the reader never runs.
+
+Two rules follow, and they are the whole fix:
+
+1. **Never inject into a tab whose `frozen` is true.** The property is readable since
+   Chrome 132, so the hang is entirely avoidable: check first. This is what turns ten
+   eight-second hangs into ten instant, correctly-labelled skips.
+2. **Reviving one means activating it.** The docs are explicit that a tab "is unfrozen
+   on activation"; a reload is not documented to unfreeze, and a reload request is
+   queued behind the same wall. Activation is visible to the user, so **Measure frozen
+   tabs** is opt-in, processes those tabs one at a time, and restores whatever tab was
+   in front when it finishes. Expanding the collapsed group by hand does the same thing
+   without the flicker.
 
 ### The injected reader has no timers, on purpose
 

@@ -20,6 +20,27 @@ export async function hasPageAccess() {
   return chrome.permissions.contains(ALL_URLS);
 }
 
+/** The active tab in every window, so focus can be handed back afterwards. */
+async function currentlyActiveTabs() {
+  try {
+    const active = await chrome.tabs.query({ active: true });
+    return active.map((t) => ({ id: t.id, windowId: t.windowId }));
+  } catch {
+    return [];
+  }
+}
+
+/** Put the user back where they were. Best effort: tabs may have closed. */
+async function restoreFocus(previous) {
+  for (const entry of previous) {
+    try {
+      await chrome.tabs.update(entry.id, { active: true });
+    } catch {
+      // That tab is gone; nothing sensible to restore it to.
+    }
+  }
+}
+
 /** Normalize a chrome.tabs.Tab into the record the estimators expect. */
 function normalize(tab) {
   return {
@@ -127,17 +148,33 @@ export async function readPage(tabId, timeoutMs, allowRetries) {
  * millisecond while healthy ones answer in about a millisecond. Reloading the
  * tab is the only way to get a renderer back.
  */
-async function readPageReviving(tab, opts) {
-  const first = await readPage(tab.id, PROBE_TIMEOUT_MS, opts.justWoken);
-  if (first.status !== 'timeout') return { ...first, revived: false };
+/**
+ * Bring a frozen tab back so it can be read, then hand focus back.
+ *
+ * Activation is the documented way a tab unfreezes ("It is unfrozen on
+ * activation" — chrome.tabs docs). Reloading is not: a frozen tab's renderer is
+ * suspended, so a reload request is queued behind the same wall that swallows an
+ * injection. Activation is visible to the user, which is why it is opt-in.
+ */
+async function activateAndWait(tabId, timeoutMs = 3000) {
+  try {
+    await chrome.tabs.update(tabId, { active: true });
+  } catch {
+    return false; // closed, or the window went away
+  }
 
-  if (!opts.mayWake) return { status: 'unresponsive', revived: false };
-
-  const awake = await wakeTab(tab.id);
-  if (!awake) return { status: 'wakeFailed', revived: false };
-
-  const second = await readPage(tab.id, opts.timeoutMs, true);
-  return { ...second, revived: true };
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(150);
+    let tab;
+    try {
+      tab = await chrome.tabs.get(tabId);
+    } catch {
+      return false;
+    }
+    if (!tab.frozen && tab.status === 'complete') return true;
+  }
+  return false;
 }
 
 /**
@@ -231,7 +268,18 @@ export async function enrichWithContent(tabs, opts = {}) {
 
   const concurrency = opts.wakeSleeping ? 3 : SCRAPE_CONCURRENCY;
 
-  await mapLimit(tabs, concurrency, async (tab) => {
+  /*
+   * Reviving a frozen tab means activating it, which is visible and can only
+   * happen to one tab per window at a time. Remember what was in front so the
+   * user's focus can be put back exactly where they left it.
+   */
+  const focusedBefore = opts.reviveFrozen ? await currentlyActiveTabs() : [];
+
+  // Frozen tabs are handled one at a time; everything else runs in parallel.
+  const frozen = opts.reviveFrozen ? tabs.filter((t) => t.frozen) : [];
+  const rest = opts.reviveFrozen ? tabs.filter((t) => !t.frozen) : tabs;
+
+  const readOne = async (tab) => {
     done += 1;
     if (onProgress) onProgress({ phase: 'reading', done, total: tabs.length });
 
@@ -257,7 +305,7 @@ export async function enrichWithContent(tabs, opts = {}) {
     // A sleeping tab has no live page to read, and no renderer for an injected
     // script to run in. Reading one means reloading it first.
     let justWoken = false;
-    const asleep = tab.discarded || tab.status === 'unloaded' || tab.frozen;
+    const asleep = tab.discarded || tab.status === 'unloaded';
     if (asleep) {
       if (!opts.wakeSleeping) {
         stats.asleep += 1;
@@ -279,29 +327,35 @@ export async function enrichWithContent(tabs, opts = {}) {
       return;
     }
 
-    // A tab we just reloaded is the one case where content genuinely may not
-    // have rendered yet, so it is the one case worth retrying.
-    const read = await readPageReviving(tab, {
-      justWoken,
-      mayWake: Boolean(opts.wakeSleeping),
-      timeoutMs,
-    });
-
-    if (read.revived) stats.revived += 1;
-
-    if (read.status === 'unresponsive') {
-      stats.frozen += 1;
-      note(tab, 'renderer suspended', { frozen: tab.frozen, waitedMs: PROBE_TIMEOUT_MS });
-      return;
+    /*
+     * NEVER inject into a frozen tab.
+     *
+     * chrome.scripting.executeScript against a frozen tab neither resolves nor
+     * rejects — the call is queued against a suspended renderer and returns only
+     * if the tab is later unfrozen (Chromium 40901394, w3c/webextensions#527).
+     * The tab must be revived first, or left alone.
+     */
+    if (tab.frozen) {
+      if (!opts.reviveFrozen) {
+        stats.frozen += 1;
+        note(tab, 'frozen', { frozen: true });
+        return;
+      }
+      const revived = await activateAndWait(tab.id);
+      if (!revived) {
+        stats.frozen += 1;
+        note(tab, 'would not unfreeze', { frozen: true });
+        return;
+      }
+      stats.revived += 1;
+      justWoken = true;
     }
-    if (read.status === 'wakeFailed') {
-      stats.wakeFailed += 1;
-      note(tab, 'would not wake');
-      return;
-    }
+
+    const read = await readPage(tab.id, justWoken ? timeoutMs : PROBE_TIMEOUT_MS, justWoken);
+
     if (read.status === 'timeout') {
       stats.timedOut += 1;
-      note(tab, 'timed out', { waitedMs: timeoutMs, revived: read.revived });
+      note(tab, 'timed out', { waitedMs: justWoken ? timeoutMs : PROBE_TIMEOUT_MS });
       return;
     }
     if (read.status === 'refused') {
@@ -338,7 +392,14 @@ export async function enrichWithContent(tabs, opts = {}) {
         attempts: read.attempts,
       });
     }
-  });
+  };
+
+  await mapLimit(rest, concurrency, readOne);
+  for (const tab of frozen) {
+    if (token && token.cancelled) break;
+    await readOne(tab);
+  }
+  await restoreFocus(focusedBefore);
 
   await chrome.storage.local.set({ [STORAGE_KEYS.contentCache]: pruneCache(cache, now) });
   return {
