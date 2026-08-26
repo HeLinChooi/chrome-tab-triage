@@ -205,7 +205,7 @@ function renderQuickWins() {
     const list = document.createElement('div');
     list.className = 'qw-list';
     const sorted = all.slice().sort((a, b) => b.minutes - a.minutes);
-    for (const tab of sorted) list.appendChild(tabRow(tab));
+    for (const tab of sorted) list.appendChild(tabRow(tab, 'both'));
     els.quickWins.appendChild(list);
   }
 }
@@ -260,6 +260,7 @@ function renderLedger() {
     const head = document.createElement('div');
     head.className = 'lgroup-head';
     head.innerHTML = `
+      <span class="chevron"></span>
       <span class="swatch"></span>
       <div><span class="name"></span><span class="mix"></span></div>
       <span class="count"></span>
@@ -269,6 +270,7 @@ function renderLedger() {
     head.querySelector('.mix').textContent = group.mix;
     head.querySelector('.count').textContent = pluralize(group.tabs.length, 'tab');
     head.querySelector('.time').textContent = formatMinutes(group.minutes);
+    head.querySelector('.chevron').textContent = collapsed.has(group.key) ? '▸' : '▾';
     head.addEventListener('click', () => {
       if (collapsed.has(group.key)) collapsed.delete(group.key);
       else collapsed.add(group.key);
@@ -277,13 +279,24 @@ function renderLedger() {
     section.appendChild(head);
 
     if (!collapsed.has(group.key)) {
-      for (const tab of group.tabs) section.appendChild(tabRow(tab));
+      const body = document.createElement('div');
+      body.className = 'lgroup-body';
+      body.style.borderLeftColor = group.color;
+      const secondary = groupBy === 'task' ? 'site' : 'task';
+      for (const tab of group.tabs) body.appendChild(tabRow(tab, secondary));
+      section.appendChild(body);
     }
     els.ledgerBody.appendChild(section);
   }
 }
 
-function tabRow(tab) {
+/**
+ * @param {object} tab
+ * @param {'task'|'site'|'both'} secondary which label the pill should carry.
+ *   Repeating the group's own dimension on every row is noise — under a "Watch"
+ *   header, a "Watch" pill on each row says nothing and reads like a list item.
+ */
+function tabRow(tab, secondary = 'task') {
   const row = document.createElement('div');
   row.className = 'tabrow';
   row.innerHTML = `
@@ -317,7 +330,9 @@ function tabRow(tab) {
     .join(' · ');
 
   const pill = row.querySelector('.pill');
-  pill.textContent = (TASK_TYPES[tab.taskType] || TASK_TYPES.unknown).label;
+  const taskLabel = (TASK_TYPES[tab.taskType] || TASK_TYPES.unknown).label;
+  pill.textContent =
+    secondary === 'site' ? tab.site : secondary === 'both' ? `${tab.site} · ${taskLabel}` : taskLabel;
   if (tab.stale) pill.classList.add('stale');
 
   row.querySelector('.time').textContent = formatMinutes(tab.minutes);
