@@ -46,3 +46,15 @@ test('a cancel token reports and throws once cancelled', () => {
   assert.equal(token.cancelled, true);
   assert.throws(() => token.throwIfCancelled(), CancelledError);
 });
+
+test('a closed message channel is recognized, a real error is not', async () => {
+  const { isChannelClosed } = await import('../src/ui/shared.js');
+  assert.equal(
+    isChannelClosed({ ok: false, error: 'A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received' }),
+    true,
+  );
+  assert.equal(isChannelClosed({ ok: false, error: 'Receiving end does not exist.' }), true);
+  assert.equal(isChannelClosed({ ok: false, error: 'invalid API key' }), false);
+  assert.equal(isChannelClosed({ ok: true, report: {} }), false);
+  assert.equal(isChannelClosed(null), false);
+});

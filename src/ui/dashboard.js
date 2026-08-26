@@ -1,6 +1,6 @@
 import { formatMinutes, formatAge, pluralize } from '../lib/format.js';
 import { TASK_TYPES } from '../lib/taxonomy.js';
-import { send, renderWarnings, guard } from './shared.js';
+import { send, renderWarnings, guard, requestAnalysis } from './shared.js';
 
 const els = {
   generated: document.getElementById('generated'),
@@ -481,10 +481,15 @@ function setBusy(busy) {
 async function refresh() {
   setBusy(true);
   try {
-    const res = await send({ type: 'analyze' });
+    const res = await requestAnalysis();
     if (res.ok) {
       report = res.report;
       renderAll();
+      if (res.recovered) {
+        renderWarnings(els.warnings, [
+          'The extension worker restarted during this run; the summary was recovered from storage.',
+        ]);
+      }
     } else if (res.cancelled) {
       renderWarnings(els.warnings, ['Summary cancelled — showing the previous one.']);
     } else {

@@ -1,5 +1,5 @@
 import { formatMinutes, pluralize } from '../lib/format.js';
-import { send, renderWarnings } from './shared.js';
+import { send, renderWarnings, requestAnalysis } from './shared.js';
 
 const els = {
   total: document.getElementById('total'),
@@ -59,7 +59,7 @@ async function analyze() {
   els.analyze.disabled = true;
   els.analyze.textContent = 'Working…';
   try {
-    const res = await send({ type: 'analyze' });
+    const res = await requestAnalysis();
     if (res.ok) render(res.report);
     else renderWarnings(els.warnings, [res.error]);
   } finally {

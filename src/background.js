@@ -19,6 +19,27 @@ const DIGEST_ALARM = 'morning-digest';
  */
 let activeRun = null;
 
+/**
+ * MV3 tears the service worker down when it looks idle, and a long run is exactly
+ * when that hurts: the worker dies, sendResponse never fires, and the caller sees
+ * "the message channel closed before a response was received". Touching an
+ * extension API on a timer resets the idle countdown for as long as work is live.
+ */
+let keepAliveTimer = null;
+
+function startKeepAlive() {
+  if (keepAliveTimer) return;
+  keepAliveTimer = setInterval(() => {
+    chrome.runtime.getPlatformInfo().catch(() => {});
+  }, 20000);
+}
+
+function stopKeepAlive() {
+  if (!keepAliveTimer) return;
+  clearInterval(keepAliveTimer);
+  keepAliveTimer = null;
+}
+
 /** Tell any open UI how far along a run is. No listener is a normal case. */
 function broadcastProgress(update) {
   chrome.runtime.sendMessage({ type: 'analysisProgress', ...update }).catch(() => {});
@@ -32,6 +53,7 @@ async function runCancellable(opts = {}) {
 
   const token = createCancelToken();
   activeRun = { token, startedAt: Date.now() };
+  startKeepAlive();
   broadcastProgress({ phase: 'starting' });
 
   try {
@@ -51,6 +73,7 @@ async function runCancellable(opts = {}) {
     throw error;
   } finally {
     activeRun = null;
+    stopKeepAlive();
   }
 }
 const DIGEST_NOTIFICATION = 'morning-digest-notification';

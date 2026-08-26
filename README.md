@@ -93,6 +93,13 @@ Tabs that are discarded or still loading are skipped rather than woken. Anything
 skipped or timed out simply falls back to a rule-of-thumb estimate and is counted as
 unmeasured in the report.
 
+The service worker is also kept alive for the duration of a run. MV3 tears down an
+idle worker, and a long run is exactly when that hurts: the worker dies, the response
+never arrives, and the caller sees *"the message channel closed before a response was
+received"*. Touching an extension API on a timer resets that countdown while work is
+live. If the worker restarts anyway, the UI waits for the run to finish and picks the
+report up from storage rather than reporting a failure you cannot act on.
+
 On top of that, every run is cancellable: the dashboard shows live progress
 ("Reading pages 34/210…") and a **Cancel** button while one is in flight, and only one
 run may be active at a time. Cancelling keeps the previous summary rather than leaving
