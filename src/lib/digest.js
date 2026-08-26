@@ -33,9 +33,9 @@ function explainSkips(info, settings, unmeasured) {
       info.pastDeadline +
       info.thin
     : 0;
-  const thin = Math.max(0, unmeasured - accountedFor);
-  if (thin) {
-    parts.push(`${thin} were read but had too little text or media on the page to measure`);
+  const unexplained = Math.max(0, unmeasured - accountedFor);
+  if (unexplained) {
+    parts.push(`${unexplained} were measured but the reading was too weak to trust over the per-site rule`);
   }
 
   if (!parts.length) return '';
@@ -102,6 +102,7 @@ export async function runAnalysis(opts = {}) {
 
   report.trigger = opts.trigger || 'manual';
   report.scope = settings.scope;
+  report.readLog = scrapeInfo.log || [];
   report.pageAccess = {
     enabled: Boolean(settings.readPageText),
     scraped: scrapeInfo.scraped,

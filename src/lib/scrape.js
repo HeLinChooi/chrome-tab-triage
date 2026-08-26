@@ -8,16 +8,9 @@
  */
 
 export async function scrapePage() {
+  const started = Date.now();
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const clamp = (n, max) => (Number.isFinite(n) ? Math.min(n, max) : 0);
-
-  function mainText() {
-    const candidates = ['article', 'main', '[role="main"]', '#content', '.post', '.article-body'];
-    for (const sel of candidates) {
-      const el = document.querySelector(sel);
-      if (el && el.innerText && el.innerText.trim().length > 400) return el.innerText;
-    }
-    return document.body ? document.body.innerText || '' : '';
-  }
 
   function isoDurationToSeconds(iso) {
     const m = /^P(?:\d+D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || '');
@@ -25,6 +18,7 @@ export async function scrapePage() {
     return Number(m[1] || 0) * 3600 + Number(m[2] || 0) * 60 + Number(m[3] || 0);
   }
 
+  /* Cheap: a DOM query, no layout. Safe to call repeatedly while waiting. */
   function mediaSeconds() {
     let best = 0;
     for (const el of document.querySelectorAll('video, audio')) {
@@ -32,7 +26,6 @@ export async function scrapePage() {
     }
     if (best > 0) return best;
 
-    // Media that has not loaded metadata yet still advertises its length.
     const metaSelectors = [
       'meta[itemprop="duration"]',
       'meta[property="video:duration"]',
@@ -48,6 +41,26 @@ export async function scrapePage() {
     return best;
   }
 
+  /* Cheap: counts content-bearing elements without measuring or laying out. */
+  function contentNodes() {
+    return document.querySelectorAll('p, li, article, main, h1, h2, h3, td, pre, blockquote').length;
+  }
+
+  /*
+   * Expensive: innerText forces a full layout, and on a heavy page that costs
+   * hundreds of milliseconds. Call it ONCE, after the cheap probes above say
+   * there is something worth reading — polling with it is what pushes tabs past
+   * their timeout.
+   */
+  function mainText() {
+    const candidates = ['article', 'main', '[role="main"]', '#content', '.post', '.article-body'];
+    for (const sel of candidates) {
+      const el = document.querySelector(sel);
+      if (el && el.innerText && el.innerText.trim().length > 400) return el.innerText;
+    }
+    return document.body ? document.body.innerText || '' : '';
+  }
+
   function visibleFormFields() {
     let count = 0;
     for (const el of document.querySelectorAll('input, textarea, select')) {
@@ -59,38 +72,35 @@ export async function scrapePage() {
     return count;
   }
 
-  function readNow() {
-    const text = mainText().replace(/\s+/g, ' ').trim();
-    const words = text ? text.split(' ').length : 0;
-    return {
-      wordCount: clamp(words, 200000),
-      // Cap at 8h so a live stream reporting Infinity does not swamp the totals.
-      videoSeconds: Math.round(clamp(mediaSeconds(), 8 * 3600)),
-      formFields: visibleFormFields(),
-      excerpt: text.slice(0, 400),
-      scrapedAt: Date.now(),
-    };
-  }
-
-  const usable = (r) => r.wordCount >= 120 || r.videoSeconds > 0;
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
   /*
-   * `load` is not "content is on screen". On a single-page app the document
-   * completes with an empty shell and the real text arrives later, and a <video>
-   * reports NaN duration until its metadata loads. Reading once at load time on
-   * such a page measures nothing, so poll briefly and keep the best result.
+   * `load` is not "content is on screen": a single-page app completes its
+   * document with an empty shell and renders afterwards, and a <video> reports
+   * NaN duration until its metadata loads. Wait on the cheap signals only.
    */
-  let best = readNow();
-  const deadline = Date.now() + 2500;
+  const deadline = started + 2000;
+  let nodes = contentNodes();
+  let media = mediaSeconds();
 
-  while (!usable(best) && Date.now() < deadline) {
-    await sleep(250);
-    const next = readNow();
-    if (next.wordCount > best.wordCount || next.videoSeconds > best.videoSeconds) best = next;
+  while (Date.now() < deadline && nodes < 5 && media === 0) {
+    await sleep(200);
+    nodes = contentNodes();
+    media = mediaSeconds();
   }
 
-  return best;
+  const text = mainText().replace(/\s+/g, ' ').trim();
+  const words = text ? text.split(' ').length : 0;
+
+  return {
+    wordCount: clamp(words, 200000),
+    // Cap at 8h so a live stream reporting Infinity does not swamp the totals.
+    videoSeconds: Math.round(clamp(media, 8 * 3600)),
+    formFields: visibleFormFields(),
+    excerpt: text.slice(0, 400),
+    contentNodes: nodes,
+    readyState: document.readyState,
+    tookMs: Date.now() - started,
+    scrapedAt: Date.now(),
+  };
 }
 
 /**
@@ -100,7 +110,7 @@ export async function scrapePage() {
  * whole TTL, so a fix to the reader appears to do nothing — the fixed code never
  * runs, because every tab is served from cache.
  */
-export const SCRAPE_VERSION = 2;
+export const SCRAPE_VERSION = 3;
 
 /**
  * Is this reading worth keeping?

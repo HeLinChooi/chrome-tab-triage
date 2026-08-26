@@ -85,7 +85,7 @@ large profile is genuinely slow. Three limits keep that bounded, in `src/lib/col
 
 | Limit | Default | Why |
 |---|---|---|
-| Per-tab timeout | 6s | `executeScript` against a wedged renderer can hang indefinitely, and `innerText` on a huge page forces a full layout; it also has to cover the reader's settle window below |
+| Per-tab timeout | 8s | `executeScript` against a wedged renderer can hang indefinitely, and `innerText` on a huge page forces a full layout; it also has to cover the reader's settle window below |
 | Concurrency | 6 | Injecting into every tab at once asks Chrome to wake the whole profile simultaneously |
 | Overall deadline | 45s | A profile full of slow pages still produces a summary |
 
@@ -96,11 +96,21 @@ usually dominate, because Chrome's memory saver discards background tabs and a
 discarded tab has no live page to read. **Wake sleeping tabs** in Settings reloads them
 so they can be measured, at the cost of bandwidth and slower runs.
 
+**Page reading, tab by tab** on the dashboard lists what happened to each tab —
+read, cached, timed out, nothing to measure, injection refused, asleep — with the word
+count, media duration, content-node count and elapsed time behind each. Aggregate
+counts say how many tabs failed; they never say which, and "which" is the only thing
+that makes a reading failure actionable, because the cause is nearly always specific
+to the site.
+
 The reader also waits for content to appear. `load` is not "content is on screen": a
 single-page app completes its document with an empty shell and renders the real text
 afterwards, and a `<video>` reports `NaN` duration until its metadata loads. Reading
-once at load time on such a page measures nothing, so the injected reader polls for up
-to 2.5s and keeps the best result. A page that really is empty gives up at the end of
+once at load time on such a page measures nothing, so the injected reader waits — but
+it waits on **cheap** signals. `innerText` forces a full layout and costs hundreds of
+milliseconds on a heavy page, so polling with it is what pushes tabs past their
+timeout. The reader polls a layout-free element count instead, then reads text exactly
+once, and a test pins that invariant. A page that really is empty gives up at the end of
 that window rather than holding the run open.
 
 Readings are cached for six hours so repeat runs stay fast, with two rules that keep

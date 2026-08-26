@@ -16,6 +16,10 @@ const els = {
   cancel: document.getElementById('cancel'),
   progress: document.getElementById('progress'),
   tooltip: document.getElementById('tooltip'),
+  readLog: document.getElementById('readLog'),
+  readLogToggle: document.getElementById('readLogToggle'),
+  readLogSummary: document.getElementById('readLogSummary'),
+  readLogBody: document.getElementById('readLogBody'),
   transcript: document.getElementById('transcript'),
   transcriptToggle: document.getElementById('transcriptToggle'),
   transcriptSummary: document.getElementById('transcriptSummary'),
@@ -371,6 +375,68 @@ async function closeMany(tabs) {
   await refresh();
 }
 
+// --- Read log -----------------------------------------------------------
+
+const OUTCOME_ORDER = ['timed out', 'nothing to measure', 'injection refused', 'would not wake', 'asleep', 'still loading', 'past deadline', 'cached', 'read'];
+
+/**
+ * Per-tab reading outcomes.
+ *
+ * Aggregate counts say how many tabs failed; they never say which, and "which"
+ * is the only thing that makes a reading failure actionable, because the cause
+ * is nearly always specific to the site.
+ */
+function renderReadLog() {
+  const log = report.readLog || [];
+  els.readLog.hidden = log.length === 0;
+  if (!log.length) return;
+
+  const counts = new Map();
+  for (const row of log) counts.set(row.outcome, (counts.get(row.outcome) || 0) + 1);
+  els.readLogSummary.textContent = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([outcome, n]) => `${n} ${outcome}`)
+    .join(' · ');
+
+  const rank = (o) => {
+    const i = OUTCOME_ORDER.indexOf(o);
+    return i === -1 ? OUTCOME_ORDER.length : i;
+  };
+
+  els.readLogBody.innerHTML = '';
+  const table = document.createElement('div');
+  table.className = 'rl-table';
+
+  for (const row of log.slice().sort((a, b) => rank(a.outcome) - rank(b.outcome))) {
+    const line = document.createElement('div');
+    line.className = 'rl-row';
+
+    const outcome = document.createElement('span');
+    outcome.className = `rl-outcome rl-${row.outcome.replace(/\s+/g, '-')}`;
+    outcome.textContent = row.outcome;
+
+    const title = document.createElement('span');
+    title.className = 'truncate';
+    title.textContent = row.title || row.url;
+    title.title = row.url;
+
+    const detail = document.createElement('span');
+    detail.className = 'rl-detail';
+    const bits = [];
+    if (row.wordCount != null) bits.push(`${row.wordCount} words`);
+    if (row.videoSeconds) bits.push(`${Math.round(row.videoSeconds / 60)}m media`);
+    if (row.contentNodes != null) bits.push(`${row.contentNodes} content nodes`);
+    if (row.readyState && row.readyState !== 'complete') bits.push(row.readyState);
+    if (row.tookMs != null) bits.push(`${row.tookMs}ms`);
+    if (row.waitedMs != null) bits.push(`waited ${row.waitedMs}ms`);
+    detail.textContent = bits.join(' · ');
+
+    line.append(outcome, title, detail);
+    table.appendChild(line);
+  }
+  els.readLogBody.appendChild(table);
+}
+
 // --- Transcript ---------------------------------------------------------
 
 /**
@@ -510,6 +576,7 @@ function renderAll() {
   renderBudget();
   renderQuickWins();
   renderLedger();
+  renderReadLog();
   renderTranscript();
 }
 
@@ -560,6 +627,12 @@ async function refresh() {
     setBusy(false);
   }
 }
+
+els.readLogToggle.addEventListener('click', () => {
+  const showing = !els.readLogBody.hidden;
+  els.readLogBody.hidden = showing;
+  els.readLogToggle.textContent = showing ? 'show' : 'hide';
+});
 
 els.transcriptToggle.addEventListener('click', () => {
   const showing = !els.transcriptBody.hidden;

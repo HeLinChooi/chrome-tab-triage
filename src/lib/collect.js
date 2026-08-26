@@ -57,7 +57,7 @@ export async function collectTabs(settings = {}) {
  * The injected reader polls for up to 2.5s waiting for a single-page app to
  * render, so this has to leave room for that plus the injection round trip.
  */
-export const SCRAPE_TIMEOUT_MS = 6000;
+export const SCRAPE_TIMEOUT_MS = 8000;
 
 /** How long the whole scraping phase may take before we proceed with what we have. */
 export const SCRAPE_DEADLINE_MS = 45000;
@@ -150,6 +150,15 @@ export async function enrichWithContent(tabs, opts = {}) {
   };
   let done = 0;
 
+  /*
+   * A per-tab record of what happened while reading. Three rounds of debugging
+   * this from aggregate counts alone was three too many: when a page will not
+   * measure, the answer is almost always specific to that site.
+   */
+  const log = [];
+  const note = (tab, outcome, extra = {}) =>
+    log.push({ url: tab.url, title: tab.title, outcome, ...extra });
+
   const concurrency = opts.wakeSleeping ? 3 : SCRAPE_CONCURRENCY;
 
   await mapLimit(tabs, concurrency, async (tab) => {
@@ -165,11 +174,13 @@ export async function enrichWithContent(tabs, opts = {}) {
     if (hit && hit.v === SCRAPE_VERSION && isUsableContent(hit) && now - hit.scrapedAt < CONTENT_TTL_MS) {
       tab.content = hit;
       stats.cached += 1;
+      note(tab, 'cached', { wordCount: hit.wordCount, videoSeconds: hit.videoSeconds });
       return;
     }
 
     if (Date.now() > deadline) {
       stats.pastDeadline += 1;
+      note(tab, 'past deadline');
       return;
     }
 
@@ -179,17 +190,20 @@ export async function enrichWithContent(tabs, opts = {}) {
     if (asleep) {
       if (!opts.wakeSleeping) {
         stats.asleep += 1;
+        note(tab, 'asleep');
         return;
       }
       if (onProgress) onProgress({ phase: 'waking', done, total: tabs.length });
       const awake = await wakeTab(tab.id);
       if (!awake) {
         stats.wakeFailed += 1;
+        note(tab, 'would not wake');
         return;
       }
       stats.woken += 1;
     } else if (tab.status !== 'complete') {
       stats.loading += 1;
+      note(tab, 'still loading');
       return;
     }
 
@@ -204,12 +218,14 @@ export async function enrichWithContent(tabs, opts = {}) {
 
     if (content === TIMED_OUT) {
       stats.timedOut += 1;
+      note(tab, 'timed out', { waitedMs: timeoutMs });
       return;
     }
     if (!content) {
       // Chrome refused the injection: PDF viewer, the Web Store, a restricted
       // origin, or the tab went away mid-run.
       stats.restricted += 1;
+      note(tab, 'injection refused');
       return;
     }
 
@@ -219,8 +235,20 @@ export async function enrichWithContent(tabs, opts = {}) {
     if (isUsableContent(content)) {
       cache[key] = { ...content, v: SCRAPE_VERSION };
       stats.scraped += 1;
+      note(tab, 'read', {
+        wordCount: content.wordCount,
+        videoSeconds: content.videoSeconds,
+        tookMs: content.tookMs,
+      });
     } else {
       stats.thin += 1;
+      note(tab, 'nothing to measure', {
+        wordCount: content.wordCount,
+        videoSeconds: content.videoSeconds,
+        contentNodes: content.contentNodes,
+        readyState: content.readyState,
+        tookMs: content.tookMs,
+      });
     }
   });
 
@@ -228,6 +256,7 @@ export async function enrichWithContent(tabs, opts = {}) {
   return {
     tabs,
     ...stats,
+    log,
     skipped: stats.asleep + stats.loading + stats.restricted + stats.pastDeadline + stats.wakeFailed,
   };
 }

@@ -287,3 +287,32 @@
   padding-top: 14px;
   margin-top: 18px;
 }
+
+/* --- Read log --------------------------------------------------------- */
+
+.rl-table { margin-top: 12px; }
+.rl-row {
+  display: grid;
+  grid-template-columns: 132px 1fr auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.rl-row:last-child { border-bottom: none; }
+.rl-outcome {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.rl-outcome.rl-read, .rl-outcome.rl-cached { color: var(--ok); }
+.rl-outcome.rl-timed-out,
+.rl-outcome.rl-nothing-to-measure,
+.rl-outcome.rl-would-not-wake { color: var(--accent); }
+.rl-detail {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
