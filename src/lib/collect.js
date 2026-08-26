@@ -73,6 +73,41 @@ export const WAKE_TIMEOUT_MS = 10000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Attempts to read a page that has not rendered yet, and the gaps between them. */
+const RETRY_DELAYS_MS = [400, 900];
+
+/**
+ * Read a page, retrying from the extension side if it comes back empty.
+ *
+ * The waiting deliberately happens here rather than inside the injected reader:
+ * Chrome throttles timers in long-hidden tabs to about one per minute, so an
+ * in-page wait does not return before the injection times out. The service
+ * worker's timers are not throttled.
+ */
+export async function readPage(tabId, timeoutMs, allowRetries) {
+  const TIMED_OUT = Symbol('timeout');
+  let last = null;
+
+  const attempts = allowRetries ? RETRY_DELAYS_MS.length + 1 : 1;
+  for (let i = 0; i < attempts; i += 1) {
+    if (i > 0) await sleep(RETRY_DELAYS_MS[i - 1]);
+
+    const injection = chrome.scripting
+      .executeScript({ target: { tabId }, func: scrapePage })
+      .then((frames) => (frames && frames[0] ? frames[0].result : null))
+      .catch(() => null);
+
+    const result = await withTimeout(injection, timeoutMs, TIMED_OUT);
+    if (result === TIMED_OUT) return { status: 'timeout' };
+    if (!result) return { status: 'refused' };
+
+    last = result;
+    if (isUsableContent(result)) return { status: 'ok', content: result, attempts: i + 1 };
+  }
+
+  return { status: 'thin', content: last, attempts };
+}
+
 /**
  * Reload a discarded tab and wait for it to come back.
  *
@@ -186,6 +221,7 @@ export async function enrichWithContent(tabs, opts = {}) {
 
     // A sleeping tab has no live page to read, and no renderer for an injected
     // script to run in. Reading one means reloading it first.
+    let justWoken = false;
     const asleep = tab.discarded || tab.status === 'unloaded';
     if (asleep) {
       if (!opts.wakeSleeping) {
@@ -201,33 +237,31 @@ export async function enrichWithContent(tabs, opts = {}) {
         return;
       }
       stats.woken += 1;
+      justWoken = true;
     } else if (tab.status !== 'complete') {
       stats.loading += 1;
       note(tab, 'still loading');
       return;
     }
 
-    const attempt = chrome.scripting
-      .executeScript({ target: { tabId: tab.id }, func: scrapePage })
-      .then((frames) => (frames && frames[0] ? frames[0].result : null))
-      // Not scriptable: PDF viewer, restricted origin, or closed mid-run.
-      .catch(() => null);
+    // A tab we just reloaded is the one case where content genuinely may not
+    // have rendered yet, so it is the one case worth retrying.
+    const read = await readPage(tab.id, timeoutMs, justWoken);
 
-    const TIMED_OUT = Symbol('timeout');
-    const content = await withTimeout(attempt, timeoutMs, TIMED_OUT);
-
-    if (content === TIMED_OUT) {
+    if (read.status === 'timeout') {
       stats.timedOut += 1;
       note(tab, 'timed out', { waitedMs: timeoutMs });
       return;
     }
-    if (!content) {
+    if (read.status === 'refused') {
       // Chrome refused the injection: PDF viewer, the Web Store, a restricted
-      // origin, or the tab went away mid-run.
+      // origin, a frozen renderer, or the tab went away mid-run.
       stats.restricted += 1;
       note(tab, 'injection refused');
       return;
     }
+
+    const content = read.content;
 
     tab.content = content;
     // Never cache a failure to measure: it would replay for hours and the page
@@ -239,6 +273,7 @@ export async function enrichWithContent(tabs, opts = {}) {
         wordCount: content.wordCount,
         videoSeconds: content.videoSeconds,
         tookMs: content.tookMs,
+        attempts: read.attempts,
       });
     } else {
       stats.thin += 1;
@@ -247,7 +282,9 @@ export async function enrichWithContent(tabs, opts = {}) {
         videoSeconds: content.videoSeconds,
         contentNodes: content.contentNodes,
         readyState: content.readyState,
+        hidden: content.hidden,
         tookMs: content.tookMs,
+        attempts: read.attempts,
       });
     }
   });

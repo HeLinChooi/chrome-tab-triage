@@ -7,9 +7,8 @@
  * and never touches form values, storage, or cookies.
  */
 
-export async function scrapePage() {
+export function scrapePage() {
   const started = Date.now();
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const clamp = (n, max) => (Number.isFinite(n) ? Math.min(n, max) : 0);
 
   function isoDurationToSeconds(iso) {
@@ -18,7 +17,6 @@ export async function scrapePage() {
     return Number(m[1] || 0) * 3600 + Number(m[2] || 0) * 60 + Number(m[3] || 0);
   }
 
-  /* Cheap: a DOM query, no layout. Safe to call repeatedly while waiting. */
   function mediaSeconds() {
     let best = 0;
     for (const el of document.querySelectorAll('video, audio')) {
@@ -41,16 +39,13 @@ export async function scrapePage() {
     return best;
   }
 
-  /* Cheap: counts content-bearing elements without measuring or laying out. */
   function contentNodes() {
     return document.querySelectorAll('p, li, article, main, h1, h2, h3, td, pre, blockquote').length;
   }
 
   /*
-   * Expensive: innerText forces a full layout, and on a heavy page that costs
-   * hundreds of milliseconds. Call it ONCE, after the cheap probes above say
-   * there is something worth reading — polling with it is what pushes tabs past
-   * their timeout.
+   * innerText forces a full layout and costs hundreds of milliseconds on a heavy
+   * page, so it is called exactly once.
    */
   function mainText() {
     const candidates = ['article', 'main', '[role="main"]', '#content', '.post', '.article-body'];
@@ -73,31 +68,30 @@ export async function scrapePage() {
   }
 
   /*
-   * `load` is not "content is on screen": a single-page app completes its
-   * document with an empty shell and renders afterwards, and a <video> reports
-   * NaN duration until its metadata loads. Wait on the cheap signals only.
+   * DELIBERATELY SYNCHRONOUS — no timers, no awaits.
+   *
+   * Chrome throttles timers in a tab that has been hidden for more than five
+   * minutes to roughly one callback per minute. Almost every tab in a summary is
+   * a background tab, so a `setTimeout` here does not wait 200ms, it waits up to
+   * a minute, and the injected function never returns before its timeout. That
+   * is a hang, not slowness: the give-away is every failing tab consuming its
+   * entire budget to the millisecond while successful ones return in ~1ms.
+   *
+   * Waiting for a page to finish rendering therefore has to happen on the
+   * extension side, where timers run normally — see retryRead in collect.js.
    */
-  const deadline = started + 2000;
-  let nodes = contentNodes();
-  let media = mediaSeconds();
-
-  while (Date.now() < deadline && nodes < 5 && media === 0) {
-    await sleep(200);
-    nodes = contentNodes();
-    media = mediaSeconds();
-  }
-
   const text = mainText().replace(/\s+/g, ' ').trim();
   const words = text ? text.split(' ').length : 0;
 
   return {
     wordCount: clamp(words, 200000),
     // Cap at 8h so a live stream reporting Infinity does not swamp the totals.
-    videoSeconds: Math.round(clamp(media, 8 * 3600)),
+    videoSeconds: Math.round(clamp(mediaSeconds(), 8 * 3600)),
     formFields: visibleFormFields(),
     excerpt: text.slice(0, 400),
-    contentNodes: nodes,
+    contentNodes: contentNodes(),
     readyState: document.readyState,
+    hidden: document.hidden,
     tookMs: Date.now() - started,
     scrapedAt: Date.now(),
   };
@@ -110,7 +104,7 @@ export async function scrapePage() {
  * whole TTL, so a fix to the reader appears to do nothing — the fixed code never
  * runs, because every tab is served from cache.
  */
-export const SCRAPE_VERSION = 3;
+export const SCRAPE_VERSION = 4;
 
 /**
  * Is this reading worth keeping?

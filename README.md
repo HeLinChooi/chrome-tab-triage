@@ -103,14 +103,26 @@ counts say how many tabs failed; they never say which, and "which" is the only t
 that makes a reading failure actionable, because the cause is nearly always specific
 to the site.
 
-The reader also waits for content to appear. `load` is not "content is on screen": a
-single-page app completes its document with an empty shell and renders the real text
-afterwards, and a `<video>` reports `NaN` duration until its metadata loads. Reading
-once at load time on such a page measures nothing, so the injected reader waits — but
-it waits on **cheap** signals. `innerText` forces a full layout and costs hundreds of
-milliseconds on a heavy page, so polling with it is what pushes tabs past their
-timeout. The reader polls a layout-free element count instead, then reads text exactly
-once, and a test pins that invariant. A page that really is empty gives up at the end of
+### The injected reader has no timers, on purpose
+
+`load` is not "content is on screen": a single-page app completes its document with an
+empty shell and renders the real text afterwards, and a `<video>` reports `NaN`
+duration until its metadata loads. So a reading sometimes has to be retried.
+
+That retry **cannot happen inside the page.** Chrome throttles timers in a tab hidden
+for more than five minutes to roughly one callback per minute, and nearly every tab in
+a summary is a background tab. A `setTimeout(200)` in the injected reader does not wait
+200ms — it waits up to a minute, and the injection times out. The signature of this is
+unmistakable and worth remembering: **every failing tab consumes its entire timeout
+budget to the millisecond, while successful ones return in about 1ms.** That is a hang,
+not slowness.
+
+So the reader is strictly synchronous — one pass, no awaits, and `innerText` (which
+forces a full layout) called exactly once. Retrying is the extension's job, where
+timers run normally, and only for a tab we just reloaded, since a tab that rendered
+long ago will not improve on a second look. Tests pin all three: that the reader
+returns a value rather than a promise, that it reads `innerText` once, and that the
+retry ladder lives extension-side. A page that really is empty gives up at the end of
 that window rather than holding the run open.
 
 Readings are cached for six hours so repeat runs stay fast, with two rules that keep
