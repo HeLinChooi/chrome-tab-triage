@@ -18,8 +18,11 @@ export async function runAnalysis(opts = {}) {
     scrapeInfo = await enrichWithContent(tabs);
   }
 
-  const { engine, estimates, warnings = [] } = await estimate(tabs, settings);
+  const { engine, estimates, warnings = [], transcript = null } = await estimate(tabs, settings);
   const report = buildReport(tabs, estimates, { engine, warnings });
+
+  // What was actually sent to and returned by the API, for the transcript panel.
+  report.transcript = transcript;
 
   report.trigger = opts.trigger || 'manual';
   report.scope = settings.scope;

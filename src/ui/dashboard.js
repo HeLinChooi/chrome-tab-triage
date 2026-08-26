@@ -14,6 +14,10 @@ const els = {
   ledgerBody: document.getElementById('ledgerBody'),
   analyze: document.getElementById('analyze'),
   tooltip: document.getElementById('tooltip'),
+  transcript: document.getElementById('transcript'),
+  transcriptToggle: document.getElementById('transcriptToggle'),
+  transcriptSummary: document.getElementById('transcriptSummary'),
+  transcriptBody: document.getElementById('transcriptBody'),
 };
 
 /** Categorical slots, assigned in fixed order. The 7th and beyond fold into "Other". */
@@ -304,6 +308,112 @@ async function closeMany(tabs) {
   await refresh();
 }
 
+// --- Transcript ---------------------------------------------------------
+
+/**
+ * Shows exactly what left the browser and what came back.
+ *
+ * The Claude engine sends tab titles, URLs and page excerpts to a third party;
+ * a user is entitled to read the request rather than take the description of it
+ * on faith. Rendered as text, never as markup.
+ */
+function renderTranscript() {
+  const t = report.transcript;
+
+  if (!t || !t.exchanges.length) {
+    els.transcriptSummary.textContent =
+      report.engine === 'claude'
+        ? 'This run produced no completed API exchanges.'
+        : 'Nothing. This summary was produced by the local estimator, which makes no network calls — no tab data left this browser.';
+    els.transcriptToggle.hidden = !t;
+    els.transcriptBody.hidden = true;
+    if (!t) return;
+  }
+
+  els.transcriptToggle.hidden = false;
+  const totals = t.totals;
+  const bits = [
+    `${pluralize(t.requests, 'request')} to ${t.model}`,
+    `${totals.inputTokens.toLocaleString()} in / ${totals.outputTokens.toLocaleString()} out tokens`,
+    `${(totals.ms / 1000).toFixed(1)}s`,
+  ];
+  if (totals.costUsd != null) bits.push(`about $${totals.costUsd.toFixed(4)}`);
+  if (t.failure) bits.push(`failed: ${t.failure}`);
+  els.transcriptSummary.textContent = bits.join(' · ');
+
+  els.transcriptBody.innerHTML = '';
+  els.transcriptBody.appendChild(
+    codeBlock('System prompt', 'sent once per request', t.systemPrompt),
+  );
+  els.transcriptBody.appendChild(
+    codeBlock('Response schema', 'the shape Claude is constrained to return', JSON.stringify(t.schema, null, 2)),
+  );
+
+  t.exchanges.forEach((exchange, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'tr-exchange';
+
+    const meta = document.createElement('div');
+    meta.className = 'tr-meta';
+    const usage = exchange.usage || {};
+    meta.innerHTML = '';
+    for (const [label, value] of [
+      ['Tabs', String(exchange.tabCount)],
+      ['Input tokens', (usage.input_tokens || 0).toLocaleString()],
+      ['Output tokens', (usage.output_tokens || 0).toLocaleString()],
+      ['Took', `${(exchange.ms / 1000).toFixed(1)}s`],
+      ['Stop reason', exchange.stopReason || '—'],
+    ]) {
+      const span = document.createElement('span');
+      const b = document.createElement('b');
+      b.textContent = value;
+      span.append(`${label} `, b);
+      meta.appendChild(span);
+    }
+
+    wrap.appendChild(meta);
+    wrap.appendChild(codeBlock(`Request ${i + 1}`, 'the user message', exchange.request));
+    wrap.appendChild(codeBlock(`Response ${i + 1}`, 'raw, before parsing', exchange.response));
+    els.transcriptBody.appendChild(wrap);
+  });
+
+  if (t.truncated) {
+    const note = document.createElement('p');
+    note.className = 'muted tiny';
+    note.textContent = `${t.omittedExchanges} further exchange(s) were omitted to keep the stored transcript small.`;
+    els.transcriptBody.appendChild(note);
+  }
+}
+
+function codeBlock(title, hint, text) {
+  const block = document.createElement('div');
+  block.className = 'tr-block';
+
+  const heading = document.createElement('h3');
+  heading.textContent = title;
+  const hintEl = document.createElement('span');
+  hintEl.className = 'muted';
+  hintEl.textContent = hint;
+  const copy = document.createElement('button');
+  copy.className = 'tr-copy';
+  copy.textContent = 'copy';
+  copy.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(text);
+    copy.textContent = 'copied';
+    setTimeout(() => {
+      copy.textContent = 'copy';
+    }, 1200);
+  });
+  heading.append(hintEl, copy);
+
+  const pre = document.createElement('pre');
+  pre.className = 'tr-pre';
+  pre.textContent = text; // never innerHTML — this is untrusted page-derived content
+
+  block.append(heading, pre);
+  return block;
+}
+
 // --- Wiring -------------------------------------------------------------
 
 function renderAll() {
@@ -319,6 +429,7 @@ function renderAll() {
   renderBudget();
   renderQuickWins();
   renderLedger();
+  renderTranscript();
 }
 
 async function refresh() {
@@ -330,6 +441,12 @@ async function refresh() {
     renderWarnings(els.warnings, [res.error]);
   }
 }
+
+els.transcriptToggle.addEventListener('click', () => {
+  const showing = !els.transcriptBody.hidden;
+  els.transcriptBody.hidden = showing;
+  els.transcriptToggle.textContent = showing ? 'show' : 'hide';
+});
 
 els.analyze.addEventListener('click', guard(els.analyze, 'Working…', refresh));
 document.getElementById('options').addEventListener('click', () => chrome.runtime.openOptionsPage());

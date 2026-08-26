@@ -6,5 +6,6 @@ import { estimateAll as claude } from './estimator-claude.js';
 export async function estimate(tabs, settings) {
   if (settings.engine === 'claude') return claude(tabs, settings);
   const result = await local(tabs, settings);
-  return { ...result, warnings: result.warnings || [] };
+  // The local engine makes no network calls, so there is no transcript to show.
+  return { ...result, warnings: result.warnings || [], transcript: null };
 }

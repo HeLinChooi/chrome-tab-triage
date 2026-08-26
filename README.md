@@ -50,6 +50,25 @@ npm run icons      # regenerate icons/ from scripts/gen-icons.mjs
 npm run zip        # build + package for the Chrome Web Store
 ```
 
+## Seeing what was sent
+
+Every summary produced by the Claude engine carries a full transcript, shown at the
+bottom of the dashboard under **What was sent to Claude**:
+
+- the exact system prompt, verbatim
+- the JSON schema the response is constrained to
+- every request body — the real tab list that left the browser, page excerpts included
+- every raw response, before parsing
+- tokens in and out, wall time, and the run's approximate cost in dollars
+
+Nothing is paraphrased; the panel renders the same strings the API received and
+returned, with a copy button on each. When the local engine produced the summary the
+panel says so plainly, because in that case nothing was sent anywhere.
+
+The transcript lives in `chrome.storage.local` alongside the report, capped so a
+large run cannot fill storage — totals still count every request, and the panel says
+how many exchanges were omitted.
+
 ## Permissions, and why each one
 
 Requested up front:

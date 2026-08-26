@@ -128,9 +128,17 @@ function textOf(response) {
     .join('');
 }
 
+/**
+ * One request, returned along with everything needed to show the user exactly
+ * what left their browser and what came back.
+ */
 async function estimateChunk(client, settings, entries) {
+  const model = settings.model || 'claude-opus-5';
+  const userContent = `Estimate these ${entries.length} tabs:\n\n${JSON.stringify(entries, null, 1)}`;
+  const startedAt = Date.now();
+
   const response = await client.messages.create({
-    model: settings.model || 'claude-opus-5',
+    model,
     max_tokens: 16000,
     system: SYSTEM_PROMPT,
     output_config: {
@@ -138,16 +146,24 @@ async function estimateChunk(client, settings, entries) {
       effort: 'low',
       format: { type: 'json_schema', schema: RESPONSE_SCHEMA },
     },
-    messages: [
-      {
-        role: 'user',
-        content: `Estimate these ${entries.length} tabs:\n\n${JSON.stringify(entries, null, 1)}`,
-      },
-    ],
+    messages: [{ role: 'user', content: userContent }],
   });
 
-  const parsed = JSON.parse(textOf(response));
-  return parsed.tabs || [];
+  const text = textOf(response);
+  const parsed = JSON.parse(text);
+
+  return {
+    rows: parsed.tabs || [],
+    exchange: {
+      model,
+      tabCount: entries.length,
+      request: userContent,
+      response: text,
+      usage: response.usage || null,
+      stopReason: response.stop_reason || null,
+      ms: Date.now() - startedAt,
+    },
+  };
 }
 
 /**
@@ -180,9 +196,12 @@ export async function estimateAll(tabs, settings) {
     CHUNK_SIZE,
   );
 
+  const exchanges = [];
+
   try {
     const results = await mapLimit(batches, CONCURRENCY, async (batch) => {
-      const rows = await estimateChunk(client, settings, batch.map((b) => b.entry));
+      const { rows, exchange } = await estimateChunk(client, settings, batch.map((b) => b.entry));
+      exchanges.push(exchange);
       const byIndex = new Map(rows.map((r) => [r.index, r]));
       return batch.map((b) => ({ tab: b.tab, row: byIndex.get(b.entry.index) }));
     });
@@ -214,10 +233,80 @@ export async function estimateAll(tabs, settings) {
       engine: 'local',
       estimates: localPass.estimates,
       warnings: [`Claude request failed (${describeError(error)}). Used the local estimator instead.`],
+      transcript: buildTranscript(exchanges, { failure: describeError(error) }),
     };
   }
 
-  return { engine: 'claude', estimates: [...byId.values()], warnings };
+  return {
+    engine: 'claude',
+    estimates: [...byId.values()],
+    warnings,
+    transcript: buildTranscript(exchanges),
+  };
+}
+
+/**
+ * Per-million-token rates, so the transcript can show what a run actually cost.
+ * A model missing from this table simply shows token counts and no dollar figure.
+ */
+const PRICING = {
+  'claude-opus-5': { input: 5, output: 25 },
+  'claude-opus-4-8': { input: 5, output: 25 },
+  'claude-sonnet-5': { input: 2, output: 10 },
+  'claude-haiku-4-5': { input: 1, output: 5 },
+};
+
+/** Keep the stored transcript bounded; chrome.storage.local is not a log sink. */
+const MAX_TRANSCRIPT_CHARS = 300000;
+
+/**
+ * Assemble the record shown in the dashboard's transcript panel: the exact
+ * system prompt, every request body, every raw response, and what it cost.
+ */
+export function buildTranscript(exchanges, meta = {}) {
+  const totals = exchanges.reduce(
+    (acc, ex) => {
+      const usage = ex.usage || {};
+      acc.inputTokens += usage.input_tokens || 0;
+      acc.outputTokens += usage.output_tokens || 0;
+      acc.cacheReadTokens += usage.cache_read_input_tokens || 0;
+      acc.ms += ex.ms || 0;
+      return acc;
+    },
+    { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, ms: 0 },
+  );
+
+  const model = exchanges.length ? exchanges[0].model : null;
+  const rate = model ? PRICING[model] : null;
+  const costUsd = rate
+    ? (totals.inputTokens / 1e6) * rate.input + (totals.outputTokens / 1e6) * rate.output
+    : null;
+
+  // Truncate oldest-first so the panel always shows a complete, readable exchange.
+  let budget = MAX_TRANSCRIPT_CHARS;
+  let truncated = false;
+  const kept = [];
+  for (const ex of exchanges) {
+    const size = ex.request.length + ex.response.length;
+    if (size > budget) {
+      truncated = true;
+      break;
+    }
+    budget -= size;
+    kept.push(ex);
+  }
+
+  return {
+    model,
+    systemPrompt: SYSTEM_PROMPT,
+    schema: RESPONSE_SCHEMA,
+    requests: exchanges.length,
+    exchanges: kept,
+    omittedExchanges: exchanges.length - kept.length,
+    truncated,
+    totals: { ...totals, costUsd },
+    failure: meta.failure || null,
+  };
 }
 
 function describeError(error) {
