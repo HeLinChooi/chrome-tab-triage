@@ -274,6 +274,18 @@ const handlers = {
     return run;
   },
 
+  /** Re-read every page from scratch, ignoring anything already cached. */
+  async analyzeFresh() {
+    const run = await runCancellable({ trigger: 'manual', ignoreCache: true });
+    if (run.ok) await updateBadge(run.report);
+    return run;
+  },
+
+  async clearContentCache() {
+    await chrome.storage.local.remove('contentCache');
+    return { ok: true };
+  },
+
   async cancelAnalysis() {
     if (!activeRun) return { ok: true, cancelled: false };
     activeRun.token.cancel();

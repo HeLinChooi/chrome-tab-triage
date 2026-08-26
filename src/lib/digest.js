@@ -19,12 +19,19 @@ function explainSkips(info, settings, unmeasured) {
   if (info.loading) parts.push(`${info.loading} were still loading`);
   if (info.timedOut) parts.push(`${info.timedOut} took too long to read`);
   if (info.pastDeadline) parts.push(`${info.pastDeadline} were past the run's time limit`);
+  if (info.thin) parts.push(`${info.thin} were read but the page carried no measurable text or media`);
 
   // Tabs we read successfully can still lack a usable signal — a page with a
   // handful of words and no media gives nothing to measure. Account for them
   // explicitly rather than leaving the numbers not adding up.
   const accountedFor = parts.length
-    ? info.asleep + info.wakeFailed + info.restricted + info.loading + info.timedOut + info.pastDeadline
+    ? info.asleep +
+      info.wakeFailed +
+      info.restricted +
+      info.loading +
+      info.timedOut +
+      info.pastDeadline +
+      info.thin
     : 0;
   const thin = Math.max(0, unmeasured - accountedFor);
   if (thin) {
@@ -59,6 +66,7 @@ export async function runAnalysis(opts = {}) {
       token,
       onProgress,
       wakeSleeping: settings.wakeSleepingTabs,
+      ignoreCache: opts.ignoreCache,
     });
     if (token) token.throwIfCancelled();
   }

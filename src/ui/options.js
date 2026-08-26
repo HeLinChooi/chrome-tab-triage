@@ -8,7 +8,7 @@ const els = {};
 for (const id of [
   'apiKey', 'model', 'scope', 'ignorePinned', 'readPageText', 'wakeSleepingTabs', 'wpm',
   'digestEnabled', 'digestTime', 'digestDelivery', 'save', 'saveStatus', 'digestStatus',
-  'nextRun', 'testDigest',
+  'nextRun', 'testDigest', 'clearCache', 'cacheStatus',
   'claude-settings',
 ]) {
   els[id] = document.getElementById(id);
@@ -145,6 +145,18 @@ els.save.addEventListener(
   'click',
   guard(els.save, 'Saving…', async () => {
     if (await persist()) status('Saved.');
+  }),
+);
+
+els.clearCache.addEventListener(
+  'click',
+  guard(els.clearCache, 'Clearing…', async () => {
+    const res = await send({ type: 'clearContentCache' });
+    setStatus(
+      els.cacheStatus,
+      res.ok ? 'Cleared. The next summary will read every page again.' : res.error,
+      res.ok ? 'muted' : 'error',
+    );
   }),
 );
 

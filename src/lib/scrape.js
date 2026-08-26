@@ -93,6 +93,27 @@ export async function scrapePage() {
   return best;
 }
 
+/**
+ * Bumped whenever the reader changes what it can extract.
+ *
+ * Without this, results scraped by an older reader stay authoritative for the
+ * whole TTL, so a fix to the reader appears to do nothing — the fixed code never
+ * runs, because every tab is served from cache.
+ */
+export const SCRAPE_VERSION = 2;
+
+/**
+ * Is this reading worth keeping?
+ *
+ * An empty or near-empty result is not a measurement, it is a failure to
+ * measure. Caching one means replaying that failure for hours and never
+ * retrying the page.
+ */
+export function isUsableContent(content) {
+  if (!content) return false;
+  return content.wordCount >= 120 || content.videoSeconds > 0;
+}
+
 /** How long a scrape stays usable before we re-read the page. */
 export const CONTENT_TTL_MS = 6 * 60 * 60 * 1000;
 
@@ -105,7 +126,11 @@ export const CONTENT_CACHE_MAX = 600;
  */
 export function pruneCache(cache, now = Date.now(), max = CONTENT_CACHE_MAX) {
   const live = Object.entries(cache || {}).filter(
-    ([, v]) => v && now - (v.scrapedAt || 0) < CONTENT_TTL_MS,
+    ([, v]) =>
+      v &&
+      v.v === SCRAPE_VERSION && // written by a reader that behaved like this one
+      isUsableContent(v) &&
+      now - (v.scrapedAt || 0) < CONTENT_TTL_MS,
   );
   live.sort((a, b) => (b[1].scrapedAt || 0) - (a[1].scrapedAt || 0));
   return Object.fromEntries(live.slice(0, max));

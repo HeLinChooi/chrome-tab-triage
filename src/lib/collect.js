@@ -3,7 +3,14 @@
  */
 
 import { isInternalUrl } from './taxonomy.js';
-import { scrapePage, pruneCache, cacheKey, CONTENT_TTL_MS } from './scrape.js';
+import {
+  scrapePage,
+  pruneCache,
+  cacheKey,
+  CONTENT_TTL_MS,
+  SCRAPE_VERSION,
+  isUsableContent,
+} from './scrape.js';
 import { STORAGE_KEYS } from './settings.js';
 import { mapLimit, withTimeout } from './async.js';
 
@@ -114,7 +121,7 @@ export async function enrichWithContent(tabs, opts = {}) {
   if (!(await hasPageAccess())) {
     return {
       tabs, scraped: 0, cached: 0, asleep: 0, loading: 0, restricted: 0,
-      timedOut: 0, pastDeadline: 0, woken: 0, wakeFailed: 0, skipped: 0,
+      timedOut: 0, pastDeadline: 0, woken: 0, wakeFailed: 0, thin: 0, skipped: 0,
     };
   }
 
@@ -124,7 +131,7 @@ export async function enrichWithContent(tabs, opts = {}) {
   const deadline = Date.now() + (opts.deadlineMs || defaultDeadline);
 
   const stored = await chrome.storage.local.get(STORAGE_KEYS.contentCache);
-  const cache = pruneCache(stored[STORAGE_KEYS.contentCache] || {});
+  const cache = opts.ignoreCache ? {} : pruneCache(stored[STORAGE_KEYS.contentCache] || {});
   const now = Date.now();
 
   // Counted by reason, because "could not be read" on its own tells the user
@@ -139,6 +146,7 @@ export async function enrichWithContent(tabs, opts = {}) {
     pastDeadline: 0,
     woken: 0,
     wakeFailed: 0,
+    thin: 0,
   };
   let done = 0;
 
@@ -152,7 +160,9 @@ export async function enrichWithContent(tabs, opts = {}) {
 
     const key = cacheKey(tab.url);
     const hit = cache[key];
-    if (hit && now - hit.scrapedAt < CONTENT_TTL_MS) {
+    // Only a real measurement from this version of the reader may stand in for
+    // reading the page again.
+    if (hit && hit.v === SCRAPE_VERSION && isUsableContent(hit) && now - hit.scrapedAt < CONTENT_TTL_MS) {
       tab.content = hit;
       stats.cached += 1;
       return;
@@ -204,8 +214,14 @@ export async function enrichWithContent(tabs, opts = {}) {
     }
 
     tab.content = content;
-    cache[key] = content;
-    stats.scraped += 1;
+    // Never cache a failure to measure: it would replay for hours and the page
+    // would never be retried.
+    if (isUsableContent(content)) {
+      cache[key] = { ...content, v: SCRAPE_VERSION };
+      stats.scraped += 1;
+    } else {
+      stats.thin += 1;
+    }
   });
 
   await chrome.storage.local.set({ [STORAGE_KEYS.contentCache]: pruneCache(cache, now) });

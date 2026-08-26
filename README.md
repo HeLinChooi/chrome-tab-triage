@@ -103,6 +103,17 @@ once at load time on such a page measures nothing, so the injected reader polls 
 to 2.5s and keeps the best result. A page that really is empty gives up at the end of
 that window rather than holding the run open.
 
+Readings are cached for six hours so repeat runs stay fast, with two rules that keep
+the cache from lying:
+
+- **A failure to measure is never cached.** An empty reading is not a measurement, and
+  storing one replays that failure for hours while the page is never retried.
+- **The cache is versioned.** `SCRAPE_VERSION` is bumped whenever the reader changes
+  what it can extract, and entries written by an older reader are discarded. Without
+  this, fixing the reader appears to do nothing, because the fixed code never runs.
+
+**Forget cached page data** in Settings clears it by hand.
+
 Waking means an explicit `chrome.tabs.reload` followed by waiting for the load to
 finish. `executeScript` does not wake a discarded tab — there is no renderer for the
 injected function to run in, so the call just fails. That phase runs at lower

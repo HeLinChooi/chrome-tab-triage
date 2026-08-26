@@ -72,6 +72,14 @@
           <span class="muted tiny block-sub">Chrome discards background tabs to save memory, and a discarded tab has no page left to read — on a long-running profile that is usually most of them. This reloads each one so it can be measured. That means a page load per sleeping tab: it costs bandwidth, makes a run take a minute or two instead of seconds, and re-runs whatever those pages do on load.</span>
         </span>
       </label>
+      <div class="action-row" style="margin-top:8px">
+        <button id="clearCache">Forget cached page data</button>
+        <span id="cacheStatus" class="muted tiny"></span>
+      </div>
+      <p class="muted tiny">
+        Readings are cached for six hours so repeat runs stay fast. Clear them to force
+        every page to be read again on the next summary.
+      </p>
       <label class="field">
         <span>Reading speed</span>
         <span class="inline"><input type="number" id="wpm" min="60" max="800" step="10" /> words per minute</span>
