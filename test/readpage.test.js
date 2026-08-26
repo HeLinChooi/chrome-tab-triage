@@ -65,3 +65,10 @@ test('retries give up and report what they last saw', async () => {
   assert.equal(out.content.wordCount, 0);
   assert.equal(calls(), 3, 'one initial read plus the two retry delays');
 });
+
+test('a probe timeout is short, so a suspended tab is cheap to detect', async () => {
+  const { PROBE_TIMEOUT_MS } = await import('../src/lib/collect.js');
+  // A healthy tab answers in about a millisecond; a suspended one never answers.
+  // Waiting the full budget on the first attempt buys nothing.
+  assert.ok(PROBE_TIMEOUT_MS <= 2000, 'the probe must stay short');
+});

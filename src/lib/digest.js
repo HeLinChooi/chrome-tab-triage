@@ -14,6 +14,12 @@ function explainSkips(info, settings, unmeasured) {
         (settings.wakeSleepingTabs ? '' : '. Enable "Wake sleeping tabs" in Settings to reload and read them'),
     );
   }
+  if (info.frozen) {
+    parts.push(
+      `${info.frozen} had a suspended renderer — Chrome freezes background tabs, and a frozen tab runs no JavaScript, so nothing can read it` +
+        (settings.wakeSleepingTabs ? '' : '. Enable "Wake sleeping tabs" in Settings to reload and revive them'),
+    );
+  }
   if (info.wakeFailed) parts.push(`${info.wakeFailed} would not come back when reloaded`);
   if (info.restricted) parts.push(`${info.restricted} are pages extensions may not read, such as PDFs or the Chrome Web Store`);
   if (info.loading) parts.push(`${info.loading} were still loading`);
@@ -31,7 +37,8 @@ function explainSkips(info, settings, unmeasured) {
       info.loading +
       info.timedOut +
       info.pastDeadline +
-      info.thin
+      info.thin +
+      info.frozen
     : 0;
   const unexplained = Math.max(0, unmeasured - accountedFor);
   if (unexplained) {
@@ -90,6 +97,13 @@ export async function runAnalysis(opts = {}) {
       settings.readPageText
         ? `${head} ${explainSkips(scrapeInfo, settings, report.totals.unmeasured)}`
         : `${head} Turn on "Read page text" in Settings to estimate from real word counts and video lengths; without it a 45-minute video and a 3-minute one both score the same flat guess.`,
+    ];
+  }
+
+  if (scrapeInfo.revived > 0) {
+    report.warnings = [
+      ...report.warnings,
+      `Revived ${scrapeInfo.revived} frozen tab(s) by reloading them so their pages could be read.`,
     ];
   }
 

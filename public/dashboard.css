@@ -307,6 +307,7 @@
   color: var(--muted);
 }
 .rl-outcome.rl-read, .rl-outcome.rl-cached { color: var(--ok); }
+.rl-outcome.rl-renderer-suspended,
 .rl-outcome.rl-timed-out,
 .rl-outcome.rl-nothing-to-measure,
 .rl-outcome.rl-would-not-wake { color: var(--accent); }

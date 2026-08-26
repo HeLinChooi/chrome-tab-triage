@@ -30,6 +30,9 @@ function normalize(tab) {
     favIconUrl: tab.favIconUrl || '',
     lastAccessed: tab.lastAccessed || null,
     status: tab.status || 'complete',
+    // Chrome 132+ exposes this. A frozen tab is NOT discarded and still reports
+    // status "complete", but its renderer is suspended and runs no JavaScript.
+    frozen: Boolean(tab.frozen),
     audible: Boolean(tab.audible),
     pinned: Boolean(tab.pinned),
     discarded: Boolean(tab.discarded),
@@ -77,6 +80,13 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const RETRY_DELAYS_MS = [400, 900];
 
 /**
+ * A responsive tab answers in about a millisecond. A suspended one never answers
+ * at all, so waiting the full budget on the first attempt buys nothing — probe
+ * briefly, and spend the long timeout only after a reload has revived the tab.
+ */
+export const PROBE_TIMEOUT_MS = 1500;
+
+/**
  * Read a page, retrying from the extension side if it comes back empty.
  *
  * The waiting deliberately happens here rather than inside the injected reader:
@@ -106,6 +116,28 @@ export async function readPage(tabId, timeoutMs, allowRetries) {
   }
 
   return { status: 'thin', content: last, attempts };
+}
+
+/**
+ * Read a page, reviving the tab first if its renderer will not answer.
+ *
+ * An injection into a frozen renderer never returns — the script is queued
+ * against a suspended process. There is no error and no result, just silence
+ * until we give up, which is why every such tab consumes its whole budget to the
+ * millisecond while healthy ones answer in about a millisecond. Reloading the
+ * tab is the only way to get a renderer back.
+ */
+async function readPageReviving(tab, opts) {
+  const first = await readPage(tab.id, PROBE_TIMEOUT_MS, opts.justWoken);
+  if (first.status !== 'timeout') return { ...first, revived: false };
+
+  if (!opts.mayWake) return { status: 'unresponsive', revived: false };
+
+  const awake = await wakeTab(tab.id);
+  if (!awake) return { status: 'wakeFailed', revived: false };
+
+  const second = await readPage(tab.id, opts.timeoutMs, true);
+  return { ...second, revived: true };
 }
 
 /**
@@ -156,7 +188,8 @@ export async function enrichWithContent(tabs, opts = {}) {
   if (!(await hasPageAccess())) {
     return {
       tabs, scraped: 0, cached: 0, asleep: 0, loading: 0, restricted: 0,
-      timedOut: 0, pastDeadline: 0, woken: 0, wakeFailed: 0, thin: 0, skipped: 0,
+      timedOut: 0, pastDeadline: 0, woken: 0, wakeFailed: 0, thin: 0,
+      frozen: 0, revived: 0, skipped: 0,
     };
   }
 
@@ -182,6 +215,8 @@ export async function enrichWithContent(tabs, opts = {}) {
     woken: 0,
     wakeFailed: 0,
     thin: 0,
+    frozen: 0,
+    revived: 0,
   };
   let done = 0;
 
@@ -222,7 +257,7 @@ export async function enrichWithContent(tabs, opts = {}) {
     // A sleeping tab has no live page to read, and no renderer for an injected
     // script to run in. Reading one means reloading it first.
     let justWoken = false;
-    const asleep = tab.discarded || tab.status === 'unloaded';
+    const asleep = tab.discarded || tab.status === 'unloaded' || tab.frozen;
     if (asleep) {
       if (!opts.wakeSleeping) {
         stats.asleep += 1;
@@ -246,11 +281,27 @@ export async function enrichWithContent(tabs, opts = {}) {
 
     // A tab we just reloaded is the one case where content genuinely may not
     // have rendered yet, so it is the one case worth retrying.
-    const read = await readPage(tab.id, timeoutMs, justWoken);
+    const read = await readPageReviving(tab, {
+      justWoken,
+      mayWake: Boolean(opts.wakeSleeping),
+      timeoutMs,
+    });
 
+    if (read.revived) stats.revived += 1;
+
+    if (read.status === 'unresponsive') {
+      stats.frozen += 1;
+      note(tab, 'renderer suspended', { frozen: tab.frozen, waitedMs: PROBE_TIMEOUT_MS });
+      return;
+    }
+    if (read.status === 'wakeFailed') {
+      stats.wakeFailed += 1;
+      note(tab, 'would not wake');
+      return;
+    }
     if (read.status === 'timeout') {
       stats.timedOut += 1;
-      note(tab, 'timed out', { waitedMs: timeoutMs });
+      note(tab, 'timed out', { waitedMs: timeoutMs, revived: read.revived });
       return;
     }
     if (read.status === 'refused') {

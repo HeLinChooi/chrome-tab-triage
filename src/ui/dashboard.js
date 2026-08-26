@@ -377,7 +377,7 @@ async function closeMany(tabs) {
 
 // --- Read log -----------------------------------------------------------
 
-const OUTCOME_ORDER = ['timed out', 'nothing to measure', 'injection refused', 'would not wake', 'asleep', 'still loading', 'past deadline', 'cached', 'read'];
+const OUTCOME_ORDER = ['renderer suspended', 'timed out', 'nothing to measure', 'injection refused', 'would not wake', 'asleep', 'still loading', 'past deadline', 'cached', 'read'];
 
 /**
  * Per-tab reading outcomes.
@@ -429,6 +429,9 @@ function renderReadLog() {
     if (row.readyState && row.readyState !== 'complete') bits.push(row.readyState);
     if (row.tookMs != null) bits.push(`${row.tookMs}ms`);
     if (row.waitedMs != null) bits.push(`waited ${row.waitedMs}ms`);
+    if (row.frozen) bits.push('tab.frozen');
+    if (row.revived) bits.push('after reload');
+    if (row.attempts > 1) bits.push(`${row.attempts} attempts`);
     detail.textContent = bits.join(' · ');
 
     line.append(outcome, title, detail);

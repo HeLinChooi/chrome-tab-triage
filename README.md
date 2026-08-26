@@ -103,6 +103,25 @@ counts say how many tabs failed; they never say which, and "which" is the only t
 that makes a reading failure actionable, because the cause is nearly always specific
 to the site.
 
+### Frozen tabs
+
+Chrome freezes background tabs to save resources. A frozen tab is **not** discarded and
+still reports `status: "complete"`, but its renderer is suspended and executes no
+JavaScript — so an injected script is queued against a dead process and never runs.
+There is no error and no result, only silence.
+
+The signature is unmistakable: **every affected tab consumes its entire timeout budget
+to the millisecond, while healthy tabs answer in about one.** If you ever see that
+pattern, the renderer is not slow, it is suspended, and no change to the injected code
+will help.
+
+Reloading is the only way to get a renderer back, so the reader probes briefly
+(`PROBE_TIMEOUT_MS`, 1.5s — a healthy tab needs about 1ms, so a longer first wait buys
+nothing), and on silence reloads the tab and reads again. That revival needs **Wake
+sleeping tabs** enabled, because reloading a tab is a side effect the user has to opt
+into; without it, those tabs are reported as `renderer suspended` rather than silently
+counted as failures.
+
 ### The injected reader has no timers, on purpose
 
 `load` is not "content is on screen": a single-page app completes its document with an
