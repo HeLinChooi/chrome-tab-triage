@@ -11,7 +11,8 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { TASK_TYPES } from './taxonomy.js';
-import { estimateAll as estimateLocally } from './estimator-local.js';
+import { estimateAll as estimateLocally, baseEstimate, DEFAULT_WPM } from './estimator-local.js';
+import { applyStaleness } from './staleness.js';
 
 /** Tabs per request. Large enough to be cheap, small enough to stay reliable. */
 const CHUNK_SIZE = 50;
@@ -58,8 +59,12 @@ const SYSTEM_PROMPT = [
   '- note: at most 12 words on what drove the estimate.',
   '',
   'Calibration:',
-  '- A tab untouched for over a month is backlog. Estimate what a realistic person would',
-  '  actually spend on it now, which is usually far less than a full read.',
+  '- Estimate the effort fresh, as if the tab were opened today. Do NOT discount for how',
+  '  old the tab is. The ageDays field is context only; a separate, uniform adjustment for',
+  '  stale tabs is applied to your answer afterwards, so discounting here double-counts it.',
+  '- baselineMinutes is a rule-based estimate of the same quantity. Treat it as a prior:',
+  '  stay close to it unless the title, URL, or excerpt gives you a concrete reason to',
+  '  differ, and let your note say what that reason was.',
   '- wordCount and videoSeconds, when present, are measured from the page. Trust them over',
   '  your impression of the title.',
   '- Be concrete rather than generous. Most tabs are under 10 minutes.',
@@ -76,11 +81,14 @@ function buildClient(settings) {
   });
 }
 
-function describeTab(tab, index, now) {
+function describeTab(tab, index, now, wpm) {
   const entry = {
     index,
     title: (tab.title || '').slice(0, 160),
     url: (tab.url || '').slice(0, 300),
+    // The local engine's fresh-effort number, sent as a prior so the two engines
+    // do not drift apart on tabs where neither has a strong signal.
+    baselineMinutes: Math.round(baseEstimate(tab, { wpm }).minutes * 10) / 10,
   };
   if (tab.lastAccessed) entry.ageDays = Math.round((now - tab.lastAccessed) / DAY_MS);
   if (tab.audible) entry.playingAudio = true;
@@ -166,8 +174,9 @@ export async function estimateAll(tabs, settings) {
   const byId = new Map(localPass.estimates.map((e) => [e.tabId, e]));
 
   const client = buildClient(settings);
+  const wpm = settings.wpm || DEFAULT_WPM;
   const batches = chunk(
-    sent.map((tab, i) => ({ tab, entry: describeTab(tab, i, now) })),
+    sent.map((tab, i) => ({ tab, entry: describeTab(tab, i, now, wpm) })),
     CHUNK_SIZE,
   );
 
@@ -182,14 +191,21 @@ export async function estimateAll(tabs, settings) {
       for (const { tab, row } of batch) {
         if (!row) continue;
         const fallback = byId.get(tab.id);
+        const fresh = Math.max(0, Number(row.minutes) || 0);
+
+        // The same discount the local engine gets, applied here rather than asked
+        // for in the prompt — one rule, so the two engines stay comparable.
+        const { minutes, stale, factor, ageDays } = applyStaleness(fresh, tab, now);
+        const note = row.note || 'Estimated by Claude';
+
         byId.set(tab.id, {
           tabId: tab.id,
-          minutes: Math.max(0, Math.round(Number(row.minutes) * 10) / 10),
+          minutes,
           taskType: TASK_TYPES[row.taskType] ? row.taskType : fallback.taskType,
           confidence: tab.content ? 'high' : 'medium',
-          reason: row.note || 'Estimated by Claude',
-          stale: fallback.stale,
-          note: row.note || '',
+          reason: factor < 1 ? `${note}; discounted — untouched for ${Math.round(ageDays)} days` : note,
+          stale,
+          note,
         });
       }
     }

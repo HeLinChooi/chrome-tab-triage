@@ -2,34 +2,65 @@
  * Local heuristic estimator.
  *
  * Estimates "minutes to clear" from what we can observe without a network call:
- * the URL, the title, how stale the tab is, and — when the user has granted page
- * access — the word count and media duration scraped from the page.
+ * the URL, the title, and — when the user has granted page access — the word
+ * count and media duration scraped from the page.
+ *
+ * `baseEstimate` returns fresh effort. The staleness discount is applied on top
+ * by `estimateTab`, using the same shared rule the Claude engine uses, so the
+ * two engines stay comparable.
  */
 
 import { classify, isInternalUrl } from './taxonomy.js';
+import { applyStaleness } from './staleness.js';
 
 export const DEFAULT_WPM = 238; // Brysbaert 2019, silent reading of non-fiction
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** Tabs untouched for this long are backlog, not work in progress. */
-export const STALE_DAYS = 30;
-
-/**
- * A stale tab is worth less of your time than a fresh one: you have already
- * decided, by not opening it for a month, that it is not urgent. We discount the
- * estimate rather than dropping the tab, and flag it so the UI can offer a bulk
- * close.
- */
-function stalenessFactor(ageDays) {
-  if (ageDays >= STALE_DAYS * 3) return 0.15;
-  if (ageDays >= STALE_DAYS) return 0.3;
-  if (ageDays >= 7) return 0.75;
-  return 1;
-}
+export { STALE_DAYS } from './staleness.js';
 
 function readingMinutes(wordCount, wpm) {
   return wordCount / Math.max(wpm, 50);
+}
+
+/**
+ * Fresh effort for a tab, before any staleness discount.
+ * @returns {{minutes: number, taskType: string, confidence: string, reason: string}}
+ */
+export function baseEstimate(tab, opts = {}) {
+  const wpm = opts.wpm || DEFAULT_WPM;
+
+  if (isInternalUrl(tab.url)) {
+    return { minutes: 0, taskType: 'reference', confidence: 'high', reason: 'Browser page — nothing to clear' };
+  }
+
+  const { type, ruleMinutes, source } = classify(tab);
+  const content = tab.content;
+
+  if (type === 'watch' && content && content.videoSeconds > 0) {
+    const minutes = content.videoSeconds / 60;
+    return { minutes, taskType: type, confidence: 'high', reason: `${Math.round(minutes)} min of media on the page` };
+  }
+
+  if (content && content.wordCount >= 120 && (type === 'read' || type === 'reference' || type === 'unknown')) {
+    // Reference pages get skimmed, not read end to end.
+    const minutes = readingMinutes(content.wordCount, wpm) * (type === 'reference' ? 0.45 : 1);
+    return {
+      minutes,
+      taskType: type,
+      confidence: 'high',
+      reason: `${content.wordCount.toLocaleString()} words at ${wpm} wpm`,
+    };
+  }
+
+  if (ruleMinutes != null) {
+    return {
+      minutes: ruleMinutes,
+      taskType: type,
+      confidence: source === 'domain' ? 'medium' : 'low',
+      reason: source === 'domain' ? 'Typical for this site' : 'Guessed from the tab title',
+    };
+  }
+
+  return { minutes: 5, taskType: type, confidence: 'low', reason: 'No page signal available' };
 }
 
 /**
@@ -38,62 +69,21 @@ function readingMinutes(wordCount, wpm) {
  * @returns {{minutes: number, taskType: string, confidence: string, reason: string, stale: boolean}}
  */
 export function estimateTab(tab, opts = {}) {
-  const wpm = opts.wpm || DEFAULT_WPM;
   const now = opts.now || Date.now();
+  const base = baseEstimate(tab, opts);
 
-  if (isInternalUrl(tab.url)) {
-    return {
-      minutes: 0,
-      taskType: 'reference',
-      confidence: 'high',
-      reason: 'Browser page — nothing to clear',
-      stale: false,
-    };
+  if (base.minutes === 0) {
+    return { ...base, minutes: 0, stale: false };
   }
 
-  const { type, ruleMinutes, source } = classify(tab);
-  const content = tab.content;
-
-  let minutes;
-  let confidence;
-  let reason;
-
-  if (type === 'watch' && content && content.videoSeconds > 0) {
-    minutes = content.videoSeconds / 60;
-    confidence = 'high';
-    reason = `${Math.round(minutes)} min of media on the page`;
-  } else if (content && content.wordCount >= 120 && (type === 'read' || type === 'reference' || type === 'unknown')) {
-    minutes = readingMinutes(content.wordCount, wpm);
-    // Reference pages get skimmed, not read end to end.
-    if (type === 'reference') minutes *= 0.45;
-    confidence = 'high';
-    reason = `${content.wordCount.toLocaleString()} words at ${wpm} wpm`;
-  } else if (ruleMinutes != null) {
-    minutes = ruleMinutes;
-    confidence = source === 'domain' ? 'medium' : 'low';
-    reason = source === 'domain' ? 'Typical for this site' : 'Guessed from the tab title';
-  } else {
-    minutes = 5;
-    confidence = 'low';
-    reason = 'No page signal available';
-  }
-
-  // A tab playing audio is being consumed right now — do not discount it.
-  const ageDays = tab.lastAccessed ? Math.max(0, (now - tab.lastAccessed) / DAY_MS) : 0;
-  const stale = ageDays >= STALE_DAYS && !tab.audible;
-  const factor = tab.audible ? 1 : stalenessFactor(ageDays);
+  const { minutes, stale, factor, ageDays } = applyStaleness(base.minutes, tab, now);
+  let { reason, confidence } = base;
   if (factor < 1) {
     reason += `; discounted — untouched for ${Math.round(ageDays)} days`;
     if (confidence === 'high') confidence = 'medium';
   }
 
-  return {
-    minutes: Math.round(minutes * factor * 10) / 10,
-    taskType: type,
-    confidence,
-    reason,
-    stale,
-  };
+  return { minutes, taskType: base.taskType, confidence, reason, stale };
 }
 
 /** Estimate a whole set of tabs. Always resolves — this engine cannot fail. */
