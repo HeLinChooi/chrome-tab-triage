@@ -13,6 +13,8 @@ const els = {
   quickWins: document.getElementById('quickWins'),
   ledgerBody: document.getElementById('ledgerBody'),
   analyze: document.getElementById('analyze'),
+  cancel: document.getElementById('cancel'),
+  progress: document.getElementById('progress'),
   tooltip: document.getElementById('tooltip'),
   transcript: document.getElementById('transcript'),
   transcriptToggle: document.getElementById('transcriptToggle'),
@@ -454,13 +456,42 @@ function renderAll() {
   renderTranscript();
 }
 
+const PHASE_LABEL = {
+  starting: 'Starting…',
+  collecting: 'Collecting tabs…',
+  estimating: 'Estimating…',
+};
+
+/** Live progress, so a long run reads as working rather than wedged. */
+chrome.runtime.onMessage.addListener((message) => {
+  if (!message || message.type !== 'analysisProgress') return;
+  if (message.phase === 'reading') {
+    els.progress.textContent = `Reading pages ${message.done}/${message.total}…`;
+    return;
+  }
+  els.progress.textContent = PHASE_LABEL[message.phase] || '';
+});
+
+function setBusy(busy) {
+  els.cancel.hidden = !busy;
+  els.progress.hidden = !busy;
+  if (!busy) els.progress.textContent = '';
+}
+
 async function refresh() {
-  const res = await send({ type: 'analyze' });
-  if (res.ok) {
-    report = res.report;
-    renderAll();
-  } else {
-    renderWarnings(els.warnings, [res.error]);
+  setBusy(true);
+  try {
+    const res = await send({ type: 'analyze' });
+    if (res.ok) {
+      report = res.report;
+      renderAll();
+    } else if (res.cancelled) {
+      renderWarnings(els.warnings, ['Summary cancelled — showing the previous one.']);
+    } else {
+      renderWarnings(els.warnings, [res.error]);
+    }
+  } finally {
+    setBusy(false);
   }
 }
 
@@ -471,6 +502,12 @@ els.transcriptToggle.addEventListener('click', () => {
 });
 
 els.analyze.addEventListener('click', guard(els.analyze, 'Working…', refresh));
+els.cancel.addEventListener('click', async () => {
+  els.cancel.disabled = true;
+  els.progress.textContent = 'Cancelling…';
+  await send({ type: 'cancelAnalysis' });
+  els.cancel.disabled = false;
+});
 document.getElementById('options').addEventListener('click', () => chrome.runtime.openOptionsPage());
 
 for (const button of document.querySelectorAll('#groupBy button')) {

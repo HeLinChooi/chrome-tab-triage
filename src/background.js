@@ -8,8 +8,51 @@
 import { runAnalysis } from './lib/digest.js';
 import { getSettings, getLastReport, parseTimeOfDay, nextOccurrence, DEFAULTS } from './lib/settings.js';
 import { headline, subhead, formatMinutes } from './lib/format.js';
+import { createCancelToken } from './lib/async.js';
 
 const DIGEST_ALARM = 'morning-digest';
+
+/**
+ * The run currently in flight, if any. A run can take a while when page reading
+ * is on — dozens of tabs to wake and read — so it has to be interruptible, and
+ * a second run must not start on top of the first.
+ */
+let activeRun = null;
+
+/** Tell any open UI how far along a run is. No listener is a normal case. */
+function broadcastProgress(update) {
+  chrome.runtime.sendMessage({ type: 'analysisProgress', ...update }).catch(() => {});
+}
+
+/**
+ * Run an analysis under a cancel token, refusing to start a second one.
+ */
+async function runCancellable(opts = {}) {
+  if (activeRun) return { ok: false, busy: true, error: 'A summary is already running.' };
+
+  const token = createCancelToken();
+  activeRun = { token, startedAt: Date.now() };
+  broadcastProgress({ phase: 'starting' });
+
+  try {
+    const report = await runAnalysis({
+      ...opts,
+      token,
+      onProgress: broadcastProgress,
+    });
+    broadcastProgress({ phase: 'done' });
+    return { ok: true, report };
+  } catch (error) {
+    if (error && error.cancelled) {
+      broadcastProgress({ phase: 'cancelled' });
+      return { ok: false, cancelled: true, error: 'Summary cancelled.' };
+    }
+    broadcastProgress({ phase: 'failed' });
+    throw error;
+  } finally {
+    activeRun = null;
+  }
+}
 const DIGEST_NOTIFICATION = 'morning-digest-notification';
 
 // --- Scheduling ---------------------------------------------------------
@@ -35,7 +78,9 @@ async function scheduleDigest() {
  */
 async function fireDigest(opts = {}) {
   try {
-    const report = await runAnalysis({ trigger: opts.manual ? 'manual-digest' : 'digest' });
+    const run = await runCancellable({ trigger: opts.manual ? 'manual-digest' : 'digest' });
+    if (!run.ok) return { notified: false, detail: run.error };
+    const report = run.report;
     await updateBadge(report);
     const outcome = await deliverDigest(report, opts);
     return { ...outcome, report };
@@ -201,9 +246,19 @@ chrome.notifications.onButtonClicked.addListener((id) => {
  */
 const handlers = {
   async analyze() {
-    const report = await runAnalysis({ trigger: 'manual' });
-    await updateBadge(report);
-    return { ok: true, report };
+    const run = await runCancellable({ trigger: 'manual' });
+    if (run.ok) await updateBadge(run.report);
+    return run;
+  },
+
+  async cancelAnalysis() {
+    if (!activeRun) return { ok: true, cancelled: false };
+    activeRun.token.cancel();
+    return { ok: true, cancelled: true };
+  },
+
+  async runStatus() {
+    return { ok: true, running: Boolean(activeRun), startedAt: activeRun ? activeRun.startedAt : null };
   },
 
   async lastReport() {
@@ -249,6 +304,9 @@ const handlers = {
 };
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  // Our own broadcast to the UI; not a request awaiting a reply.
+  if (message && message.type === 'analysisProgress') return false;
+
   const handler = handlers[message && message.type];
   if (!handler) {
     sendResponse({ ok: false, error: `Unknown message: ${message && message.type}` });

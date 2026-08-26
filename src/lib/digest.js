@@ -7,18 +7,26 @@ import { getSettings, saveLastReport } from './settings.js';
 
 /**
  * Run one full analysis.
- * @param {{persist?: boolean, trigger?: string}} opts
+ * @param {{persist?: boolean, trigger?: string, token?: object, onProgress?: Function}} opts
  */
 export async function runAnalysis(opts = {}) {
-  const settings = await getSettings();
-  const tabs = await collectTabs(settings);
+  const { token, onProgress } = opts;
+  const report_ = (phase, extra) => onProgress && onProgress({ phase, ...extra });
 
-  let scrapeInfo = { scraped: 0, cached: 0 };
+  const settings = await getSettings();
+  report_('collecting');
+  const tabs = await collectTabs(settings);
+  if (token) token.throwIfCancelled();
+
+  let scrapeInfo = { scraped: 0, cached: 0, skipped: 0, timedOut: 0 };
   if (settings.readPageText) {
-    scrapeInfo = await enrichWithContent(tabs);
+    scrapeInfo = await enrichWithContent(tabs, { token, onProgress });
+    if (token) token.throwIfCancelled();
   }
 
-  const { engine, estimates, warnings = [], transcript = null } = await estimate(tabs, settings);
+  report_('estimating', { total: tabs.length });
+  const { engine, estimates, warnings = [], transcript = null } = await estimate(tabs, settings, { token });
+  if (token) token.throwIfCancelled();
   const report = buildReport(tabs, estimates, { engine, warnings });
 
   // What was actually sent to and returned by the API, for the transcript panel.
@@ -41,7 +49,16 @@ export async function runAnalysis(opts = {}) {
     enabled: Boolean(settings.readPageText),
     scraped: scrapeInfo.scraped,
     cached: scrapeInfo.cached,
+    skipped: scrapeInfo.skipped,
+    timedOut: scrapeInfo.timedOut,
   };
+
+  if (scrapeInfo.timedOut > 0) {
+    report.warnings = [
+      ...report.warnings,
+      `${scrapeInfo.timedOut} tab(s) took too long to read and were skipped. Heavy pages and sleeping tabs are the usual cause.`,
+    ];
+  }
 
   if (opts.persist !== false) await saveLastReport(report);
   return report;

@@ -13,6 +13,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { TASK_TYPES } from './taxonomy.js';
 import { estimateAll as estimateLocally, baseEstimate, DEFAULT_WPM } from './estimator-local.js';
 import { applyStaleness } from './staleness.js';
+import { mapLimit } from './async.js';
 
 /** Tabs per request. Large enough to be cheap, small enough to stay reliable. */
 const CHUNK_SIZE = 50;
@@ -107,20 +108,6 @@ function chunk(items, size) {
   return out;
 }
 
-/** Run async jobs with a fixed ceiling on parallelism. */
-async function mapLimit(items, limit, worker) {
-  const results = new Array(items.length);
-  let cursor = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const i = cursor++;
-      results[i] = await worker(items[i], i);
-    }
-  });
-  await Promise.all(runners);
-  return results;
-}
-
 function textOf(response) {
   return (response.content || [])
     .filter((block) => block.type === 'text')
@@ -200,6 +187,7 @@ export async function estimateAll(tabs, settings) {
 
   try {
     const results = await mapLimit(batches, CONCURRENCY, async (batch) => {
+      if (settings.token) settings.token.throwIfCancelled();
       const { rows, exchange } = await estimateChunk(client, settings, batch.map((b) => b.entry));
       exchanges.push(exchange);
       const byIndex = new Map(rows.map((r) => [r.index, r]));
@@ -229,6 +217,7 @@ export async function estimateAll(tabs, settings) {
       }
     }
   } catch (error) {
+    if (error && error.cancelled) throw error;
     return {
       engine: 'local',
       estimates: localPass.estimates,

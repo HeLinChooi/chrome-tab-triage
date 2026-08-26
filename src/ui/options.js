@@ -67,13 +67,27 @@ const digestStatus = (message, tone) => setStatus(els.digestStatus, message, ton
  */
 els.readPageText.addEventListener('change', async () => {
   if (!els.readPageText.checked) {
+    // Actually hand the permission back, and verify Chrome took it.
     await chrome.permissions.remove(ALL_URLS);
-    status('Page reading turned off.');
+    const stillGranted = await chrome.permissions.contains(ALL_URLS);
+    els.readPageText.checked = stillGranted;
+    await saveSettings({ readPageText: stillGranted });
+    status(
+      stillGranted
+        ? 'Chrome did not release the permission. Remove it under chrome://extensions → Details → Site access.'
+        : 'Page reading off. Access to your pages has been revoked.',
+      stillGranted ? 'error' : 'muted',
+    );
     return;
   }
+
   const granted = await chrome.permissions.request(ALL_URLS);
   els.readPageText.checked = granted;
-  status(granted ? 'Page reading enabled.' : 'Permission declined — staying with URL-only estimates.', granted ? 'muted' : 'error');
+  await saveSettings({ readPageText: granted });
+  status(
+    granted ? 'Page reading enabled.' : 'Permission declined — staying with URL-only estimates.',
+    granted ? 'muted' : 'error',
+  );
 });
 
 for (const input of engineInputs()) {

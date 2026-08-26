@@ -78,6 +78,26 @@ pricing endpoint to read, so a table is the only option — but a model missing 
 it shows token counts with no dollar figure rather than a wrong one. Your Anthropic
 console remains the source of truth.
 
+## Runs are interruptible
+
+With page reading on, a summary has to wake and read every eligible tab, which on a
+large profile is genuinely slow. Three limits keep that bounded, in `src/lib/collect.js`:
+
+| Limit | Default | Why |
+|---|---|---|
+| Per-tab timeout | 3s | `executeScript` against a wedged renderer can hang indefinitely, and `innerText` on a huge page forces a full layout |
+| Concurrency | 6 | Injecting into every tab at once asks Chrome to wake the whole profile simultaneously |
+| Overall deadline | 45s | A profile full of slow pages still produces a summary |
+
+Tabs that are discarded or still loading are skipped rather than woken. Anything
+skipped or timed out simply falls back to a rule-of-thumb estimate and is counted as
+unmeasured in the report.
+
+On top of that, every run is cancellable: the dashboard shows live progress
+("Reading pages 34/210…") and a **Cancel** button while one is in flight, and only one
+run may be active at a time. Cancelling keeps the previous summary rather than leaving
+you with nothing.
+
 ## Why the two engines can disagree
 
 Without page access, the local engine falls back to a flat per-site number: every
@@ -105,7 +125,12 @@ Requested only when you turn the feature on, from the Settings page:
 - `<all_urls>` — "Read page text for accurate estimates". Without it, estimates come from
   the URL and title alone. There is **no persistent content script**: the reader is
   injected only during a summary run, reads length and media duration, and never touches
-  form values, storage, or cookies. Turning the checkbox off revokes the permission.
+  form values, storage, or cookies.
+
+  **Unchecking the box gives the permission back.** It calls `chrome.permissions.remove()`,
+  then re-checks with `chrome.permissions.contains()` and tells you if Chrome refused, rather
+  than assuming success. Verify independently at `chrome://extensions` → Details → Site access.
+  A permission that can only be granted is not a real choice.
 - `https://api.anthropic.com/*` — requested when you pick the Claude engine.
 
 ## Where your API key lives
