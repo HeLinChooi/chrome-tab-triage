@@ -7,7 +7,7 @@
  * and never touches form values, storage, or cookies.
  */
 
-export function scrapePage() {
+export async function scrapePage() {
   const clamp = (n, max) => (Number.isFinite(n) ? Math.min(n, max) : 0);
 
   function mainText() {
@@ -59,17 +59,38 @@ export function scrapePage() {
     return count;
   }
 
-  const text = mainText().replace(/\s+/g, ' ').trim();
-  const words = text ? text.split(' ').length : 0;
+  function readNow() {
+    const text = mainText().replace(/\s+/g, ' ').trim();
+    const words = text ? text.split(' ').length : 0;
+    return {
+      wordCount: clamp(words, 200000),
+      // Cap at 8h so a live stream reporting Infinity does not swamp the totals.
+      videoSeconds: Math.round(clamp(mediaSeconds(), 8 * 3600)),
+      formFields: visibleFormFields(),
+      excerpt: text.slice(0, 400),
+      scrapedAt: Date.now(),
+    };
+  }
 
-  return {
-    wordCount: clamp(words, 200000),
-    // Cap at 8h so a live stream reporting Infinity does not swamp the totals.
-    videoSeconds: Math.round(clamp(mediaSeconds(), 8 * 3600)),
-    formFields: visibleFormFields(),
-    excerpt: text.slice(0, 400),
-    scrapedAt: Date.now(),
-  };
+  const usable = (r) => r.wordCount >= 120 || r.videoSeconds > 0;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /*
+   * `load` is not "content is on screen". On a single-page app the document
+   * completes with an empty shell and the real text arrives later, and a <video>
+   * reports NaN duration until its metadata loads. Reading once at load time on
+   * such a page measures nothing, so poll briefly and keep the best result.
+   */
+  let best = readNow();
+  const deadline = Date.now() + 2500;
+
+  while (!usable(best) && Date.now() < deadline) {
+    await sleep(250);
+    const next = readNow();
+    if (next.wordCount > best.wordCount || next.videoSeconds > best.videoSeconds) best = next;
+  }
+
+  return best;
 }
 
 /** How long a scrape stays usable before we re-read the page. */

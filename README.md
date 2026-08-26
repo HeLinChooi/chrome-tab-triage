@@ -85,7 +85,7 @@ large profile is genuinely slow. Three limits keep that bounded, in `src/lib/col
 
 | Limit | Default | Why |
 |---|---|---|
-| Per-tab timeout | 3s | `executeScript` against a wedged renderer can hang indefinitely, and `innerText` on a huge page forces a full layout |
+| Per-tab timeout | 6s | `executeScript` against a wedged renderer can hang indefinitely, and `innerText` on a huge page forces a full layout; it also has to cover the reader's settle window below |
 | Concurrency | 6 | Injecting into every tab at once asks Chrome to wake the whole profile simultaneously |
 | Overall deadline | 45s | A profile full of slow pages still produces a summary |
 
@@ -95,6 +95,13 @@ unmeasured in the report, and the report says which reason applied — sleeping 
 usually dominate, because Chrome's memory saver discards background tabs and a
 discarded tab has no live page to read. **Wake sleeping tabs** in Settings reloads them
 so they can be measured, at the cost of bandwidth and slower runs.
+
+The reader also waits for content to appear. `load` is not "content is on screen": a
+single-page app completes its document with an empty shell and renders the real text
+afterwards, and a `<video>` reports `NaN` duration until its metadata loads. Reading
+once at load time on such a page measures nothing, so the injected reader polls for up
+to 2.5s and keeps the best result. A page that really is empty gives up at the end of
+that window rather than holding the run open.
 
 Waking means an explicit `chrome.tabs.reload` followed by waiting for the load to
 finish. `executeScript` does not wake a discarded tab — there is no renderer for the

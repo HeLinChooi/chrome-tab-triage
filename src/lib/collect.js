@@ -44,8 +44,13 @@ export async function collectTabs(settings = {}) {
     .filter((t) => !(settings.ignorePinned && t.pinned));
 }
 
-/** How long to wait on any one tab before giving up on it. */
-export const SCRAPE_TIMEOUT_MS = 3000;
+/**
+ * How long to wait on any one tab before giving up on it.
+ *
+ * The injected reader polls for up to 2.5s waiting for a single-page app to
+ * render, so this has to leave room for that plus the injection round trip.
+ */
+export const SCRAPE_TIMEOUT_MS = 6000;
 
 /** How long the whole scraping phase may take before we proceed with what we have. */
 export const SCRAPE_DEADLINE_MS = 45000;
