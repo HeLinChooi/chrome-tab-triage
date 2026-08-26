@@ -25,6 +25,14 @@ test('totals add up across tabs and windows', () => {
   assert.equal(r.totals.duplicates, 1);
 });
 
+test('measured counts only estimates backed by a real page reading', () => {
+  const r = buildReport(tabs, estimates);
+  // One 'high' confidence estimate in the fixture; the rest are rules of thumb.
+  assert.equal(r.totals.measured, 1);
+  assert.equal(r.totals.unmeasured, 3);
+  assert.equal(r.totals.measured + r.totals.unmeasured, r.totals.tabs);
+});
+
 test('groups are sorted by time and carry a task breakdown', () => {
   const r = buildReport(tabs, estimates);
   assert.equal(r.groups[0].name, 'GitHub');

@@ -46,6 +46,11 @@ export function buildReport(tabs, estimates, meta = {}) {
       staleTabs: items.filter((t) => t.stale).length,
       staleMinutes: round(sum(items.filter((t) => t.stale).map((t) => t.minutes))),
       duplicates: countDuplicates(items),
+      // Tabs whose estimate rests on a real measurement — a word count or a media
+      // duration read off the page — rather than a per-site rule of thumb. This is
+      // the single biggest driver of disagreement between the two engines.
+      measured: items.filter((t) => t.confidence === 'high').length,
+      unmeasured: items.filter((t) => t.confidence !== 'high').length,
     },
     groups,
     taskTypes,

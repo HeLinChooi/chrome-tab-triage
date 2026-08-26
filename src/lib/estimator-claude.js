@@ -246,14 +246,29 @@ export async function estimateAll(tabs, settings) {
 }
 
 /**
- * Per-million-token rates, so the transcript can show what a run actually cost.
- * A model missing from this table simply shows token counts and no dollar figure.
+ * Per-million-token list rates, used only to turn the token counts the API
+ * returns into a rough dollar figure for the transcript panel.
+ *
+ * This is a hardcoded table, not a live lookup — the Messages API returns usage,
+ * not prices, and there is no pricing endpoint to read. So it goes stale if
+ * Anthropic changes list prices, and it does not know about your discounts,
+ * batch pricing, or cache-read rates. It is labelled as an estimate wherever it
+ * is shown, the rates used are displayed alongside the figure so a reader can
+ * check them, and a model missing from the table shows token counts with no
+ * dollar figure rather than a wrong one.
+ *
+ * The token counts themselves come from the API and are always exact.
  */
+export const PRICING_AS_OF = '2026-06-24';
+
 const PRICING = {
   'claude-opus-5': { input: 5, output: 25 },
   'claude-opus-4-8': { input: 5, output: 25 },
+  'claude-opus-4-7': { input: 5, output: 25 },
   'claude-sonnet-5': { input: 2, output: 10 },
+  'claude-sonnet-4-6': { input: 3, output: 15 },
   'claude-haiku-4-5': { input: 1, output: 5 },
+  'claude-fable-5': { input: 10, output: 50 },
 };
 
 /** Keep the stored transcript bounded; chrome.storage.local is not a log sink. */
@@ -300,6 +315,10 @@ export function buildTranscript(exchanges, meta = {}) {
     model,
     systemPrompt: SYSTEM_PROMPT,
     schema: RESPONSE_SCHEMA,
+    // Shown next to the cost so the reader can check the arithmetic and see
+    // when the rates were last confirmed.
+    rate: rate || null,
+    rateAsOf: PRICING_AS_OF,
     requests: exchanges.length,
     exchanges: kept,
     omittedExchanges: exchanges.length - kept.length,

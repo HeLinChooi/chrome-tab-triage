@@ -99,6 +99,13 @@
         <button id="testDigest">Send one now</button>
         <span id="digestStatus" class="muted tiny"></span>
       </div>
+      <p class="muted tiny">
+        A summary is a snapshot taken when the run starts. Reordering tabs or dragging them
+        between windows during a run is safe — a tab keeps its identity when it moves. Closing
+        or navigating a tab mid-run is what skews things: it may be counted with the page it
+        had a moment ago, or appear in the report having already gone. With the Claude
+        estimator a run takes a few seconds, so this is worth knowing but rarely worth waiting for.
+      </p>
     </section>
 
     <div class="footer-row action-row">

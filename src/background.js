@@ -33,11 +33,11 @@ async function scheduleDigest() {
  *
  * @returns {Promise<{notified: boolean, detail: string, report?: object}>}
  */
-async function fireDigest() {
+async function fireDigest(opts = {}) {
   try {
-    const report = await runAnalysis({ trigger: 'digest' });
+    const report = await runAnalysis({ trigger: opts.manual ? 'manual-digest' : 'digest' });
     await updateBadge(report);
-    const outcome = await deliverDigest(report);
+    const outcome = await deliverDigest(report, opts);
     return { ...outcome, report };
   } catch (error) {
     console.error('[tab-triage] digest failed', error);
@@ -55,7 +55,12 @@ async function fireDigest() {
  * dashboard whenever the notification path reports a failure — and users who
  * have seen that happen can skip notifications entirely.
  */
-async function deliverDigest(report) {
+async function deliverDigest(report, opts = {}) {
+  // A scheduled digest reuses its tab so a week of them does not pile up. One the
+  // user asked for by hand gets a fresh tab, so it never replaces what they were
+  // already reading.
+  const reuse = !opts.manual;
+
   if (report.totals.tabs === 0) {
     return { notified: false, detail: 'No tabs matched the current scope, so there was nothing to send.' };
   }
@@ -64,14 +69,14 @@ async function deliverDigest(report) {
   const mode = settings.digestDelivery || DEFAULTS.digestDelivery;
 
   if (mode === 'tab') {
-    await openDashboard();
+    await openDashboard({ reuse });
     return { notified: true, detail: `${headline(report)} — opened in the dashboard.` };
   }
 
   const outcome = await notifyDigest(report);
 
   if (mode === 'both') {
-    await openDashboard({ active: false });
+    await openDashboard({ active: false, reuse });
     return {
       notified: true,
       detail: outcome.notified
@@ -82,7 +87,7 @@ async function deliverDigest(report) {
 
   if (!outcome.notified) {
     // Notifications are off or broken; show the digest rather than lose it.
-    await openDashboard();
+    await openDashboard({ reuse });
     return { notified: true, detail: `${outcome.detail} Opened the dashboard instead.` };
   }
 
@@ -155,12 +160,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 /**
- * Open the dashboard, reusing a tab that is already showing it so a week of
- * digests does not leave seven identical tabs behind.
+ * Open the dashboard.
+ *
+ * `reuse` refreshes a dashboard tab that is already open, which is what an
+ * unattended daily digest wants; a manual run passes `reuse: false` so it always
+ * lands in a new tab rather than navigating one the user is looking at.
  */
-async function openDashboard({ active = true } = {}) {
+async function openDashboard({ active = true, reuse = true } = {}) {
   const url = chrome.runtime.getURL('dashboard.html');
-  const [existing] = await chrome.tabs.query({ url });
+  const [existing] = reuse ? await chrome.tabs.query({ url }) : [];
 
   if (existing) {
     await chrome.tabs.reload(existing.id); // pick up the report we just stored
@@ -207,21 +215,35 @@ const handlers = {
     return { ok: true, when };
   },
 
+  /**
+   * A report is a snapshot, so by the time the user acts on it some of its tabs
+   * may already be gone. chrome.tabs.remove rejects the whole call if any id is
+   * invalid, so drop the dead ones first rather than failing the batch.
+   */
   async closeTabs({ tabIds }) {
-    const ids = (tabIds || []).filter((id) => Number.isInteger(id));
+    const wanted = (tabIds || []).filter((id) => Number.isInteger(id));
+    if (!wanted.length) return { ok: true, closed: 0, missing: 0 };
+
+    const open = new Set((await chrome.tabs.query({})).map((t) => t.id));
+    const ids = wanted.filter((id) => open.has(id));
     if (ids.length) await chrome.tabs.remove(ids);
-    return { ok: true, closed: ids.length };
+    return { ok: true, closed: ids.length, missing: wanted.length - ids.length };
   },
 
   async focusTab({ tabId }) {
-    const tab = await chrome.tabs.get(tabId);
-    await chrome.windows.update(tab.windowId, { focused: true });
-    await chrome.tabs.update(tabId, { active: true });
-    return { ok: true };
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      await chrome.windows.update(tab.windowId, { focused: true });
+      await chrome.tabs.update(tabId, { active: true });
+      return { ok: true };
+    } catch {
+      // Closed since the report was taken. Not an error worth a dialog.
+      return { ok: false, gone: true, error: 'That tab is no longer open.' };
+    }
   },
 
   async runDigestNow() {
-    const outcome = await fireDigest();
+    const outcome = await fireDigest({ manual: true });
     return { ok: outcome.notified, error: outcome.notified ? undefined : outcome.detail, detail: outcome.detail };
   },
 };

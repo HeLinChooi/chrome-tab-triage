@@ -69,6 +69,27 @@ The transcript lives in `chrome.storage.local` alongside the report, capped so a
 large run cannot fill storage — totals still count every request, and the panel says
 how many exchanges were omitted.
 
+**On the cost figure.** Token counts come from the API and are exact. The dollar
+amount does not: it is computed from a rate table hardcoded in
+`src/lib/estimator-claude.js`, stamped with the date the rates were last confirmed
+and displayed alongside the figure. It will drift if Anthropic changes list prices,
+and it knows nothing about discounts or batch rates on your account. There is no
+pricing endpoint to read, so a table is the only option — but a model missing from
+it shows token counts with no dollar figure rather than a wrong one. Your Anthropic
+console remains the source of truth.
+
+## Why the two engines can disagree
+
+Without page access, the local engine falls back to a flat per-site number: every
+YouTube video scores 14 minutes whether it is a 3-minute clip or a 45-minute course.
+Claude reads the title and estimates the real thing, so on a long video it can land
+3-4x higher — and it is usually the more accurate of the two.
+
+Turning on **Read page text** closes most of that gap, because the local engine then
+reads the actual media duration and word count instead of guessing. The dashboard's
+**Measured** stat shows how many tabs rest on a real measurement rather than a rule
+of thumb; when that number is low, expect the engines to diverge.
+
 ## Permissions, and why each one
 
 Requested up front:

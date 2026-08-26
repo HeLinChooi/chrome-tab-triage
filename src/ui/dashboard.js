@@ -37,6 +37,7 @@ function renderHero() {
   const stats = [
     ['Tabs', String(t.tabs)],
     ['Windows', String(t.windows)],
+    ['Measured', `${t.measured ?? 0}/${t.tabs}`],
     ['Stale', `${t.staleTabs}`],
     ['Duplicates', String(t.duplicates)],
     ['Sites', String(report.groups.length)],
@@ -291,7 +292,14 @@ function tabRow(tab) {
   if (tab.stale) pill.classList.add('stale');
 
   row.querySelector('.time').textContent = formatMinutes(tab.minutes);
-  row.querySelector('.go').addEventListener('click', () => send({ type: 'focusTab', tabId: tab.id }));
+  row.querySelector('.go').addEventListener('click', async () => {
+    const res = await send({ type: 'focusTab', tabId: tab.id });
+    // The report is a snapshot; a tab closed since then just leaves the list.
+    if (res.gone) {
+      row.style.opacity = '0.45';
+      row.querySelector('.why').textContent = 'This tab has been closed since the summary was taken.';
+    }
+  });
   row.querySelector('.close').addEventListener('click', async () => {
     await send({ type: 'closeTabs', tabIds: [tab.id] });
     row.remove();
@@ -337,11 +345,25 @@ function renderTranscript() {
     `${totals.inputTokens.toLocaleString()} in / ${totals.outputTokens.toLocaleString()} out tokens`,
     `${(totals.ms / 1000).toFixed(1)}s`,
   ];
-  if (totals.costUsd != null) bits.push(`about $${totals.costUsd.toFixed(4)}`);
+  if (totals.costUsd != null) bits.push(`roughly $${totals.costUsd.toFixed(4)}`);
   if (t.failure) bits.push(`failed: ${t.failure}`);
   els.transcriptSummary.textContent = bits.join(' · ');
 
   els.transcriptBody.innerHTML = '';
+
+  // The token counts are exact — they come from the API. The dollar figure does
+  // not, so say where it comes from rather than presenting it as authoritative.
+  if (t.rate) {
+    const note = document.createElement('p');
+    note.className = 'muted tiny';
+    note.textContent =
+      `Token counts are reported by the API and are exact. The cost is an estimate from a ` +
+      `rate table built into this extension — $${t.rate.input}/M input and $${t.rate.output}/M output, ` +
+      `list price as of ${t.rateAsOf}. It will drift if those prices change, and it does not ` +
+      `account for any discount on your account. Your Anthropic console is the source of truth.`;
+    els.transcriptBody.appendChild(note);
+  }
+
   els.transcriptBody.appendChild(
     codeBlock('System prompt', 'sent once per request', t.systemPrompt),
   );
