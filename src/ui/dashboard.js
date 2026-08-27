@@ -43,7 +43,8 @@ function renderHero() {
   const stats = [
     ['Tabs', String(t.tabs)],
     ['Windows', String(t.windows)],
-    ['Measured', `${t.measured ?? 0}/${t.tabs}`],
+    ['Pages read', `${t.read ?? 0}/${t.tabs}`],
+    ['Sized from page', `${t.measured ?? 0}/${t.tabs}`],
     ['Stale', `${t.staleTabs}`],
     ['Duplicates', String(t.duplicates)],
     ['Sites', String(report.groups.length)],

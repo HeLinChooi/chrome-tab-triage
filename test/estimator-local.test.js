@@ -65,3 +65,31 @@ test('a bare unknown URL still gets a low-confidence estimate', () => {
   assert.ok(e.minutes > 0);
   assert.equal(e.confidence, 'low');
 });
+
+test('page size raises a per-site rule but never lowers it', () => {
+  const doc = { url: 'https://docs.google.com/document/d/x', lastAccessed: NOW };
+  const small = estimateTab({ ...doc, content: { wordCount: 200 } }, { now: NOW });
+  const large = estimateTab({ ...doc, content: { wordCount: 20000 } }, { now: NOW });
+
+  // The rule is the floor: a short doc still costs the typical amount.
+  assert.equal(small.minutes, 15);
+  // A very long one costs more, because size is real information.
+  assert.ok(large.minutes > small.minutes, `${large.minutes} should exceed ${small.minutes}`);
+});
+
+test('a page read in full is high confidence even when priced by a rule', () => {
+  // Previously these were reported as "unmeasured", which read as a failure to
+  // read the page when the page had been read perfectly.
+  const inbox = estimateTab(
+    { url: 'https://mail.google.com/mail/u/0/', content: { wordCount: 2000 }, lastAccessed: NOW },
+    { now: NOW },
+  );
+  assert.equal(inbox.confidence, 'high');
+  assert.match(inbox.reason, /2,000 words/);
+});
+
+test('with no page content the rule still applies at medium confidence', () => {
+  const inbox = estimateTab({ url: 'https://mail.google.com/mail/u/0/', lastAccessed: NOW }, { now: NOW });
+  assert.equal(inbox.minutes, 20);
+  assert.equal(inbox.confidence, 'medium');
+});

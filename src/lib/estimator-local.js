@@ -51,6 +51,33 @@ export function baseEstimate(tab, opts = {}) {
     };
   }
 
+  /*
+   * For task types where reading time is the wrong model — an inbox, a pull
+   * request, a checkout — the per-site rule is the cost of *doing the thing*.
+   * But size still matters: a 20,000-word pull request is not the same job as a
+   * two-line one. Treat the rule as a floor that a long page can raise, rather
+   * than throwing the measurement away.
+   */
+  const SIZE_WEIGHT = { act: 0.6, admin: 0.35, shop: 0.4, social: 0.3 };
+
+  if (ruleMinutes != null && content && content.wordCount >= 120 && SIZE_WEIGHT[type]) {
+    const fromSize = readingMinutes(content.wordCount, wpm) * SIZE_WEIGHT[type];
+    if (fromSize > ruleMinutes) {
+      return {
+        minutes: fromSize,
+        taskType: type,
+        confidence: 'high',
+        reason: `${content.wordCount.toLocaleString()} words on the page, more than typical for this site`,
+      };
+    }
+    return {
+      minutes: ruleMinutes,
+      taskType: type,
+      confidence: 'high',
+      reason: `Typical for this site; the page is ${content.wordCount.toLocaleString()} words`,
+    };
+  }
+
   if (ruleMinutes != null) {
     return {
       minutes: ruleMinutes,

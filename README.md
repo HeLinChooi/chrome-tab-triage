@@ -89,6 +89,19 @@ large profile is genuinely slow. Three limits keep that bounded, in `src/lib/col
 | Concurrency | 6 | Injecting into every tab at once asks Chrome to wake the whole profile simultaneously |
 | Overall deadline | 45s | A profile full of slow pages still produces a summary |
 
+Two numbers on the dashboard mean different things, and conflating them made
+healthy runs look broken:
+
+- **Pages read** — the page's content was obtained. This is what page access buys.
+- **Sized from page** — the estimate is *derived* from that content.
+
+They differ legitimately. For an inbox, a pull request or a checkout, reading time is
+the wrong model, so those pages are read in full and still priced by a per-site rule.
+The rule acts as a floor rather than a replacement: a 20,000-word pull request is not
+the same job as a two-line one, so an unusually long page raises the estimate above the
+rule, but a short one never drops below it. Only **Pages read** appears in warnings —
+a page read and priced by a rule is not a failure.
+
 Tabs that are discarded or still loading are skipped rather than woken. Anything
 skipped or timed out simply falls back to a rule-of-thumb estimate and is counted as
 unmeasured in the report, and the report says which reason applied — sleeping tabs

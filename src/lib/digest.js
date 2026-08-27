@@ -44,7 +44,7 @@ function explainSkips(info, settings, unmeasured) {
     : 0;
   const unexplained = Math.max(0, unmeasured - accountedFor);
   if (unexplained) {
-    parts.push(`${unexplained} were measured but the reading was too weak to trust over the per-site rule`);
+    parts.push(`${unexplained} for reasons not recorded`);
   }
 
   if (!parts.length) return '';
@@ -89,17 +89,21 @@ export async function runAnalysis(opts = {}) {
   // What was actually sent to and returned by the API, for the transcript panel.
   report.transcript = transcript;
 
-  // Say plainly when estimates rest on rules of thumb instead of measurements,
-  // and name the actual reason rather than listing every possibility.
-  if (report.totals.unmeasured > 0) {
-    const share = Math.round((report.totals.unmeasured / report.totals.tabs) * 100);
-    const head = `${report.totals.unmeasured} of ${report.totals.tabs} tabs (${share}%) were estimated from per-site rules rather than the real page.`;
-
+  /*
+   * Report what could not be read. A page that was read but priced by a per-site
+   * rule is not a failure — for an inbox or a checkout, reading time is simply
+   * the wrong model — so it does not belong in a warning.
+   */
+  if (!settings.readPageText) {
     report.warnings = [
       ...report.warnings,
-      settings.readPageText
-        ? `${head} ${explainSkips(scrapeInfo, settings, report.totals.unmeasured)}`
-        : `${head} Turn on "Read page text" in Settings to estimate from real word counts and video lengths; without it a 45-minute video and a 3-minute one both score the same flat guess.`,
+      `Estimates come from titles and URLs alone. Turn on "Read page text" in Settings to use real word counts and video lengths; without it a 45-minute video and a 3-minute one score the same flat guess.`,
+    ];
+  } else if (report.totals.unread > 0) {
+    const share = Math.round((report.totals.unread / report.totals.tabs) * 100);
+    report.warnings = [
+      ...report.warnings,
+      `${report.totals.unread} of ${report.totals.tabs} tabs (${share}%) could not be read. ${explainSkips(scrapeInfo, settings, report.totals.unread)}`,
     ];
   }
 

@@ -46,9 +46,19 @@ export function buildReport(tabs, estimates, meta = {}) {
       staleTabs: items.filter((t) => t.stale).length,
       staleMinutes: round(sum(items.filter((t) => t.stale).map((t) => t.minutes))),
       duplicates: countDuplicates(items),
-      // Tabs whose estimate rests on a real measurement — a word count or a media
-      // duration read off the page — rather than a per-site rule of thumb. This is
-      // the single biggest driver of disagreement between the two engines.
+      /*
+       * Two different things, previously conflated under "unmeasured":
+       *
+       * - read: we got the page's content. This is what page access buys.
+       * - measured: the estimate is derived from that content.
+       *
+       * They differ legitimately. For an inbox or a checkout, reading time is
+       * the wrong model, so a page can be read in full and still be priced by a
+       * per-site rule. Reporting that as a failure to read the page was wrong,
+       * and made a healthy run look broken.
+       */
+      read: items.filter((t) => t.content).length,
+      unread: items.filter((t) => !t.content).length,
       measured: items.filter((t) => t.confidence === 'high').length,
       unmeasured: items.filter((t) => t.confidence !== 'high').length,
     },

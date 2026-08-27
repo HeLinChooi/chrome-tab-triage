@@ -25,12 +25,20 @@ test('totals add up across tabs and windows', () => {
   assert.equal(r.totals.duplicates, 1);
 });
 
-test('measured counts only estimates backed by a real page reading', () => {
-  const r = buildReport(tabs, estimates);
-  // One 'high' confidence estimate in the fixture; the rest are rules of thumb.
-  assert.equal(r.totals.measured, 1);
-  assert.equal(r.totals.unmeasured, 3);
+test('read and measured are counted separately', () => {
+  // A page can be read in full and still be priced by a per-site rule, because
+  // for an inbox or a checkout reading time is the wrong model. Conflating the
+  // two made a healthy run look like a failed one.
+  const withContent = tabs.map((t, i) => (i < 3 ? { ...t, content: { wordCount: 900 } } : t));
+  const r = buildReport(withContent, estimates);
+
+  assert.equal(r.totals.read, 3, 'three pages were read');
+  assert.equal(r.totals.unread, 1);
+  assert.equal(r.totals.read + r.totals.unread, r.totals.tabs);
+
+  assert.equal(r.totals.measured, 1, 'only one estimate was derived from the content');
   assert.equal(r.totals.measured + r.totals.unmeasured, r.totals.tabs);
+  assert.ok(r.totals.measured <= r.totals.read, 'you cannot size a page you never read');
 });
 
 test('groups are sorted by time and carry a task breakdown', () => {
