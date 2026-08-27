@@ -76,7 +76,10 @@ function showDirtyState() {
   const changed = changedFields();
   els.unsaved.hidden = changed.length === 0;
   if (changed.length) {
-    els.unsaved.textContent = `${changed.length} unsaved change${changed.length === 1 ? '' : 's'}`;
+    els.unsaved.textContent =
+      changed.length <= 2
+        ? `unsaved: ${changed.join(', ')}`
+        : `${changed.length} unsaved changes`;
     els.unsaved.title = `Not saved yet: ${changed.join(', ')}`;
     // "Saved." next to "1 unsaved change" is a contradiction; the older of the
     // two statements is the one that stopped being true.
@@ -218,16 +221,40 @@ async function persist() {
     digestTime: els.digestTime.value || DEFAULTS.digestTime,
     digestDelivery: els.digestDelivery.value,
   });
-  await send({ type: 'rescheduleDigest' });
-  showNextRun();
+  // The settings ARE saved once storage resolves. Everything after this is a
+  // side effect, so clear the indicator here rather than behind a message
+  // round-trip to a service worker that may be asleep — a hung reschedule must
+  // not leave the form looking unsaved when it is not.
   markClean();
+  showNextRun();
+
+  /*
+   * Rescheduling the alarm is a side effect of saving, not part of it, and the
+   * next-run time is computed here from the form rather than reported by the
+   * worker. So do not make the user wait on a message round-trip: a sleeping
+   * service worker would otherwise leave Save stuck on "Saving…" long after the
+   * settings were safely stored.
+   */
+  send({ type: 'rescheduleDigest' }, { timeoutMs: 15000 }).then((res) => {
+    if (!res.ok) {
+      status(`Saved, but the digest alarm was not rescheduled: ${res.error}`, 'error');
+    }
+  });
+
   return true;
 }
 
 els.save.addEventListener(
   'click',
   guard(els.save, 'Saving…', async () => {
-    if (await persist()) status('Saved.');
+    try {
+      if (await persist()) status('Saved.');
+    } catch (error) {
+      // Without this the rejection is unhandled and the page just sits there
+      // still showing unsaved changes with no explanation.
+      console.error('[tab-triage] save failed', error);
+      status(`Could not save: ${error && error.message ? error.message : error}`, 'error');
+    }
   }),
 );
 

@@ -1,14 +1,26 @@
 /** Helpers shared by the popup, dashboard, and options pages. */
 
 /** Promise wrapper over chrome.runtime.sendMessage that never rejects. */
-export function send(message) {
+export function send(message, { timeoutMs = 120000 } = {}) {
   return new Promise((resolve) => {
+    // A service worker that dies without replying leaves the callback pending
+    // forever. Nothing else times this out, so an awaited send would hang the
+    // caller indefinitely.
+    const timer = setTimeout(
+      () => resolve({ ok: false, error: 'The extension worker did not respond.' }),
+      timeoutMs,
+    );
+    const settle = (value) => {
+      clearTimeout(timer);
+      resolve(value);
+    };
+
     chrome.runtime.sendMessage(message, (response) => {
       if (chrome.runtime.lastError) {
-        resolve({ ok: false, error: chrome.runtime.lastError.message });
+        settle({ ok: false, error: chrome.runtime.lastError.message });
         return;
       }
-      resolve(response || { ok: false, error: 'No response from the extension worker.' });
+      settle(response || { ok: false, error: 'No response from the extension worker.' });
     });
   });
 }
