@@ -8,7 +8,7 @@ const els = {};
 for (const id of [
   'apiKey', 'model', 'scope', 'ignorePinned', 'readPageText', 'wakeSleepingTabs', 'reviveFrozenTabs', 'wpm',
   'digestEnabled', 'digestTime', 'digestDelivery', 'save', 'saveStatus', 'digestStatus',
-  'nextRun', 'testDigest', 'clearCache', 'cacheStatus',
+  'nextRun', 'testDigest', 'clearCache', 'cacheStatus', 'unsaved',
   'claude-settings',
 ]) {
   els[id] = document.getElementById(id);
@@ -22,6 +22,79 @@ function selectedEngine() {
   const checked = engineInputs().find((i) => i.checked);
   return checked ? checked.value : 'local';
 }
+
+/**
+ * Unsaved-change tracking.
+ *
+ * Most of this form only reaches storage when Save is pressed, but the two
+ * permission toggles write immediately — they have to, because the permission
+ * itself is granted or revoked at the moment the box is ticked, and storage that
+ * disagrees with the real permission is worse than an unsaved field. So the
+ * baseline is a value per field rather than one snapshot: an immediate write
+ * updates only its own field and leaves everything else dirty.
+ */
+function formValues() {
+  return {
+    engine: selectedEngine(),
+    apiKey: els.apiKey.value.trim(),
+    model: els.model.value.trim(),
+    scope: els.scope.value,
+    ignorePinned: els.ignorePinned.checked,
+    readPageText: els.readPageText.checked,
+    wakeSleepingTabs: els.wakeSleepingTabs.checked,
+    reviveFrozenTabs: els.reviveFrozenTabs.checked,
+    wpm: String(els.wpm.value),
+    digestEnabled: els.digestEnabled.checked,
+    digestTime: els.digestTime.value,
+    digestDelivery: els.digestDelivery.value,
+  };
+}
+
+let baseline = null;
+
+function changedFields() {
+  if (!baseline) return [];
+  const now = formValues();
+  return Object.keys(now).filter((k) => now[k] !== baseline[k]);
+}
+
+const isDirty = () => changedFields().length > 0;
+
+/** Record the whole form as saved. */
+function markClean() {
+  baseline = formValues();
+  showDirtyState();
+}
+
+/** Record a single field as saved, leaving any other edits dirty. */
+function markFieldClean(field) {
+  if (baseline) baseline[field] = formValues()[field];
+  showDirtyState();
+}
+
+function showDirtyState() {
+  const changed = changedFields();
+  els.unsaved.hidden = changed.length === 0;
+  if (changed.length) {
+    els.unsaved.textContent = `${changed.length} unsaved change${changed.length === 1 ? '' : 's'}`;
+    els.unsaved.title = `Not saved yet: ${changed.join(', ')}`;
+    // "Saved." next to "1 unsaved change" is a contradiction; the older of the
+    // two statements is the one that stopped being true.
+    if (els.saveStatus.textContent === 'Saved.') els.saveStatus.textContent = '';
+  }
+  // The tab title carries it too, for when the page is not the one in front.
+  document.title = changed.length ? '• Tab Triage settings' : 'Tab Triage settings';
+}
+
+/**
+ * Chrome will only show this prompt if the user has interacted with the page,
+ * and always uses its own wording — the string is required but never displayed.
+ */
+window.addEventListener('beforeunload', (event) => {
+  if (!isDirty()) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
 
 function syncEngineVisibility() {
   els['claude-settings'].hidden = selectedEngine() !== 'claude';
@@ -52,6 +125,7 @@ async function load() {
   els.digestDelivery.value = settings.digestDelivery;
   syncEngineVisibility();
   showNextRun();
+  markClean();
 }
 
 /** Status text belongs next to the control that produced it, not in one shared slot. */
@@ -74,6 +148,7 @@ els.readPageText.addEventListener('change', async () => {
     const stillGranted = await chrome.permissions.contains(ALL_URLS);
     els.readPageText.checked = stillGranted;
     await saveSettings({ readPageText: stillGranted });
+    markFieldClean('readPageText');
     status(
       stillGranted
         ? 'Chrome did not release the permission. Remove it under chrome://extensions → Details → Site access.'
@@ -86,6 +161,7 @@ els.readPageText.addEventListener('change', async () => {
   const granted = await chrome.permissions.request(ALL_URLS);
   els.readPageText.checked = granted;
   await saveSettings({ readPageText: granted });
+  markFieldClean('readPageText');
   status(
     granted ? 'Page reading enabled.' : 'Permission declined — staying with URL-only estimates.',
     granted ? 'muted' : 'error',
@@ -103,6 +179,10 @@ for (const input of engineInputs()) {
       status('Access to api.anthropic.com is required for the Claude estimator.', 'error');
     }
   });
+}
+
+for (const event of ['input', 'change']) {
+  document.addEventListener(event, showDirtyState, true);
 }
 
 els.digestEnabled.addEventListener('change', showNextRun);
@@ -140,6 +220,7 @@ async function persist() {
   });
   await send({ type: 'rescheduleDigest' });
   showNextRun();
+  markClean();
   return true;
 }
 

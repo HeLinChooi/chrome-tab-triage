@@ -1,4 +1,4 @@
-.wrap { max-width: 620px; margin: 0 auto; padding: 36px 20px 64px; }
+.wrap { max-width: 620px; margin: 0 auto; padding: 36px 20px 24px; }
 h1 { font-size: 22px; }
 h2 { font-size: 15px; margin-bottom: 10px; }
 
@@ -45,6 +45,35 @@ code { font-family: var(--mono); font-size: 12px; }
 
 .action-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .action-row > span { flex: 1 1 220px; }
-.footer-row { margin-top: 4px; }
+/*
+ * The form is longer than a screen, so an indicator that only lives at the
+ * bottom is an indicator you scroll past. Pin the save row instead.
+ */
+.footer-row {
+  position: sticky;
+  bottom: 0;
+  margin-top: 4px;
+  padding: 12px 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
 
 button[aria-busy="true"] { opacity: 0.7; cursor: progress; }
+
+/* Unsaved-change indicator: quiet, but not so quiet it is missed. */
+.unsaved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--accent);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.unsaved::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
