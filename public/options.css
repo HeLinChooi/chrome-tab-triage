@@ -39,7 +39,6 @@ input[type="number"] { max-width: 100px; }
   padding-left: 14px;
   border-left: 2px solid var(--border);
 }
-.nested[hidden] { display: none; }
 
 code { font-family: var(--mono); font-size: 12px; }
 

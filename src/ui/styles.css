@@ -31,6 +31,17 @@
 
 * { box-sizing: border-box; }
 
+/*
+ * The hidden attribute has to win.
+ *
+ * Browsers hide it through a user-agent rule, [hidden] { display: none }, and
+ * ANY author rule that sets display beats a UA rule regardless of specificity.
+ * So `el.hidden = true` on an element styled `display: flex` sets the attribute,
+ * reports true from JS, and changes nothing on screen — which reads as the
+ * feature being broken rather than the stylesheet overriding it.
+ */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);
