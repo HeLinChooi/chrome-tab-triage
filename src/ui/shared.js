@@ -88,3 +88,40 @@ export async function requestAnalysis({ timeoutMs = 180000 } = {}) {
     error: 'The extension worker restarted during the run and no summary was stored. Try again.',
   };
 }
+
+/** Categorical slots, assigned in fixed order. Beyond these, sites fold into "Other". */
+export const SERIES_SLOTS = 6;
+
+export const seriesColor = (i) =>
+  i < SERIES_SLOTS ? `var(--series-${i + 1})` : 'var(--series-other)';
+
+/**
+ * Fold a report's site groups into at most SERIES_SLOTS named segments plus one
+ * "Other", so the stacked bar reads the same way on every surface.
+ *
+ * Segments narrower than a couple of pixels are unreadable, so the tail is
+ * summarized rather than drawn.
+ */
+export function budgetSegments(report, slots = SERIES_SLOTS) {
+  const named = report.groups.slice(0, slots);
+  const rest = report.groups.slice(slots);
+
+  const segments = named.map((group, i) => ({
+    name: group.name,
+    minutes: group.minutes,
+    count: group.count,
+    breakdown: group.breakdown,
+    color: seriesColor(i),
+  }));
+
+  if (rest.length) {
+    segments.push({
+      name: `${rest.length} other sites`,
+      minutes: Math.round(rest.reduce((sum, g) => sum + g.minutes, 0) * 10) / 10,
+      count: rest.reduce((sum, g) => sum + g.count, 0),
+      breakdown: [],
+      color: 'var(--series-other)',
+    });
+  }
+  return segments.filter((s) => s.minutes > 0);
+}

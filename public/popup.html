@@ -6,16 +6,18 @@
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="popup.css" />
 </head>
-<body>
+<body class="viz-root">
   <header>
-    <div>
-      <div id="total" class="bignum">—</div>
+    <div class="hero">
+      <div id="total" class="value">—</div>
       <div id="sub" class="muted tiny">No summary yet</div>
     </div>
     <button id="analyze" class="primary">Summarize now</button>
   </header>
 
   <div id="warnings"></div>
+
+  <div id="bar" class="budget-bar"></div>
   <div id="groups"></div>
 
   <footer>

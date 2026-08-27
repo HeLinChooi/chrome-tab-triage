@@ -1,6 +1,14 @@
 import { formatMinutes, formatAge, pluralize } from '../lib/format.js';
 import { TASK_TYPES } from '../lib/taxonomy.js';
-import { send, renderWarnings, guard, requestAnalysis } from './shared.js';
+import {
+  send,
+  renderWarnings,
+  guard,
+  requestAnalysis,
+  seriesColor,
+  budgetSegments,
+  SERIES_SLOTS,
+} from './shared.js';
 
 const els = {
   generated: document.getElementById('generated'),
@@ -25,10 +33,6 @@ const els = {
   transcriptSummary: document.getElementById('transcriptSummary'),
   transcriptBody: document.getElementById('transcriptBody'),
 };
-
-/** Categorical slots, assigned in fixed order. The 7th and beyond fold into "Other". */
-const SERIES_SLOTS = 6;
-const seriesColor = (i) => (i < SERIES_SLOTS ? `var(--series-${i + 1})` : 'var(--series-other)');
 
 let report = null;
 let groupBy = 'site';
@@ -63,34 +67,8 @@ function renderHero() {
 
 // --- Budget bar ---------------------------------------------------------
 
-/**
- * Fold the group list into at most SERIES_SLOTS named segments plus one "Other".
- * Segments narrower than a couple of pixels are unreadable, so the tail is
- * summarized rather than drawn.
- */
-function budgetSegments() {
-  const named = report.groups.slice(0, SERIES_SLOTS);
-  const rest = report.groups.slice(SERIES_SLOTS);
-  const segments = named.map((group, i) => ({
-    name: group.name,
-    minutes: group.minutes,
-    count: group.count,
-    color: seriesColor(i),
-  }));
-
-  if (rest.length) {
-    segments.push({
-      name: `${rest.length} other sites`,
-      minutes: Math.round(rest.reduce((sum, g) => sum + g.minutes, 0) * 10) / 10,
-      count: rest.reduce((sum, g) => sum + g.count, 0),
-      color: 'var(--series-other)',
-    });
-  }
-  return segments.filter((s) => s.minutes > 0);
-}
-
 function renderBudget() {
-  const segments = budgetSegments();
+  const segments = budgetSegments(report);
   const total = segments.reduce((sum, s) => sum + s.minutes, 0);
 
   els.budget.hidden = segments.length < 2;
