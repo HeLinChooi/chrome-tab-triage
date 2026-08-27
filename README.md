@@ -1,11 +1,20 @@
 # Tab Triage
 
-A Chrome (MV3) extension that answers one question about your open tabs: **how long
-would it actually take to clear these?**
+A Chrome extension that answers one question about your open tabs: **how long would it
+actually take to clear these?**
 
 It reads every tab in the profile, estimates the focused minutes each one needs before
 you could honestly close it, groups them by site and by task type, and pushes a summary
 every morning.
+
+![The Tab Triage dashboard: a 5h 11m total above a stacked bar breaking that time down
+by site, and a ledger listing every tab with its own estimate](docs/dashboard.png)
+
+Built on Manifest V3 — the current extension platform for Chrome, where the background
+script is a service worker that Chrome starts and stops on demand rather than a page
+that stays resident. That shapes a lot of the design here: work has to survive the
+worker being torn down mid-run, and permissions are requested at the moment they are
+used rather than granted up front.
 
 ## What it does
 
