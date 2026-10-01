@@ -1,6 +1,6 @@
 import { formatMinutes, formatAge, pluralize } from '../lib/format.js';
 import { TASK_TYPES } from '../lib/taxonomy.js';
-import { reportToTsv } from '../lib/export.js';
+import { reportToMarkdown } from '../lib/export.js';
 import {
   send,
   renderWarnings,
@@ -638,7 +638,7 @@ document.getElementById('options').addEventListener('click', () => chrome.runtim
 els.copyList.addEventListener('click', async () => {
   if (!report) return;
   try {
-    await navigator.clipboard.writeText(reportToTsv(report));
+    await navigator.clipboard.writeText(reportToMarkdown(report));
     els.copyList.textContent = `Copied ${pluralize(report.items.length, 'tab')}`;
   } catch (error) {
     els.copyList.textContent = 'Copy failed';

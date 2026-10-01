@@ -28,9 +28,9 @@ used rather than granted up front.
   clear — YouTube is the biggest at 3h 5m · 31 tabs untouched for a month."* Click it to
   open the dashboard.
 - **On demand.** The toolbar popup summarizes the current tabs whenever you ask.
-- **Copy the list.** **Copy list** on the dashboard puts every tab on the clipboard as
-  tab-separated text: title, URL, site, task, minutes, words, media length, days idle,
-  and whether it is stale or a duplicate. It pastes into a spreadsheet as columns.
+- **Copy the list.** **Copy list** on the dashboard puts every tab on the clipboard as a
+  Markdown table: the title linked to its URL, site, task, minutes, words, media length,
+  days idle, and whether it is stale or a duplicate.
 
 ## Two estimators
 

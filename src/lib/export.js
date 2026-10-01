@@ -1,16 +1,15 @@
 /**
- * The report as tab-separated text, for the clipboard. Pure.
+ * The report as a Markdown table, for the clipboard. Pure.
  *
- * Tab-separated text pastes into a spreadsheet as columns and still reads
- * plainly in a note or a chat message.
+ * A Markdown table renders as a table in notes and chat apps, and the raw
+ * text is still readable. The title links to the tab's URL.
  */
 
 import { TASK_TYPES } from './taxonomy.js';
 import { ageInDays } from './staleness.js';
 
 const COLUMNS = [
-  'Title',
-  'URL',
+  'Tab',
   'Site',
   'Task',
   'Minutes',
@@ -22,10 +21,25 @@ const COLUMNS = [
   'Why',
 ];
 
-/** A tab or newline inside a value would start a new column or row. */
-const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+/** A newline would end the row, and a pipe would start a new column. */
+const clean = (value) =>
+  String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\|/g, '\\|');
 
-export function reportToTsv(report) {
+/**
+ * Square brackets in a title would end the link text early. In the URL, a
+ * space or parenthesis would end the link and a pipe would start a new column,
+ * so those are percent-encoded, which leaves the URL working.
+ */
+const link = (title, url) => {
+  const text = clean(title).replace(/[[\]]/g, '\\$&');
+  const href = String(url ?? '').replace(/[\s()|]/g, (c) => encodeURIComponent(c).replace('(', '%28').replace(')', '%29'));
+  return `[${text}](${href})`;
+};
+
+export function reportToMarkdown(report) {
   // Same rule as the dashboard: every copy after the first occurrence of a URL.
   const seen = new Set();
   const duplicate = new Set();
@@ -41,9 +55,8 @@ export function reportToTsv(report) {
     .map((item) => {
       const content = item.content || {};
       return [
-        item.title,
-        item.url,
-        item.site,
+        link(item.title, item.url),
+        clean(item.site),
         (TASK_TYPES[item.taskType] || TASK_TYPES.unknown).label,
         Math.round(item.minutes),
         content.wordCount || '',
@@ -51,9 +64,10 @@ export function reportToTsv(report) {
         item.lastAccessed ? Math.floor(ageInDays(item, report.generatedAt)) : '',
         item.stale ? 'yes' : 'no',
         duplicate.has(item) ? 'yes' : 'no',
-        item.reason,
+        clean(item.reason),
       ];
     });
 
-  return [COLUMNS, ...rows].map((row) => row.map(clean).join('\t')).join('\n');
+  const line = (cells) => `| ${cells.join(' | ')} |`;
+  return [line(COLUMNS), line(COLUMNS.map(() => '---')), ...rows.map(line)].join('\n');
 }
