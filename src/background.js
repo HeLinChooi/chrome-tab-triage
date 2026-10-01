@@ -9,6 +9,7 @@ import { runAnalysis } from './lib/digest.js';
 import { getSettings, getLastReport, parseTimeOfDay, nextOccurrence, DEFAULTS } from './lib/settings.js';
 import { headline, subhead, formatMinutes } from './lib/format.js';
 import { createCancelToken } from './lib/async.js';
+import { matchLiveTabs } from './lib/match.js';
 
 const DIGEST_ALARM = 'morning-digest';
 
@@ -307,29 +308,30 @@ const handlers = {
 
   /**
    * A report is a snapshot, so by the time the user acts on it some of its tabs
-   * may already be gone. chrome.tabs.remove rejects the whole call if any id is
-   * invalid, so drop the dead ones first rather than failing the batch.
+   * may already be gone, and after a browser restart every surviving tab has a
+   * new id. Each record is matched to a live tab by id and URL first.
+   * chrome.tabs.remove rejects the whole call if any id is invalid, so only
+   * matched ids are passed to it.
    */
-  async closeTabs({ tabIds }) {
-    const wanted = (tabIds || []).filter((id) => Number.isInteger(id));
-    if (!wanted.length) return { ok: true, closed: 0, missing: 0 };
+  async closeTabs({ tabs }) {
+    const records = (tabs || []).filter((t) => t && Number.isInteger(t.id));
+    if (!records.length) return { ok: true, closed: 0, missing: 0 };
 
-    const open = new Set((await chrome.tabs.query({})).map((t) => t.id));
-    const ids = wanted.filter((id) => open.has(id));
+    const matched = matchLiveTabs(records, await chrome.tabs.query({}));
+    const ids = [...matched.values()].filter((id) => id != null);
     if (ids.length) await chrome.tabs.remove(ids);
-    return { ok: true, closed: ids.length, missing: wanted.length - ids.length };
+    return { ok: true, closed: ids.length, missing: records.length - ids.length };
   },
 
-  async focusTab({ tabId }) {
-    try {
-      const tab = await chrome.tabs.get(tabId);
-      await chrome.windows.update(tab.windowId, { focused: true });
-      await chrome.tabs.update(tabId, { active: true });
-      return { ok: true };
-    } catch {
-      // Closed since the report was taken. Not an error worth a dialog.
-      return { ok: false, gone: true, error: 'That tab is no longer open.' };
-    }
+  async focusTab({ tab: record }) {
+    const tabId = matchLiveTabs([record], await chrome.tabs.query({})).get(record.id);
+    // Closed since the report was taken. Not an error worth a dialog.
+    if (tabId == null) return { ok: false, gone: true, error: 'That tab is no longer open.' };
+
+    const tab = await chrome.tabs.get(tabId);
+    await chrome.windows.update(tab.windowId, { focused: true });
+    await chrome.tabs.update(tabId, { active: true });
+    return { ok: true };
   },
 
   async runDigestNow() {

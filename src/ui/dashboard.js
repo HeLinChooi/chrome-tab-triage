@@ -320,15 +320,17 @@ function tabRow(tab, secondary = 'task') {
 
   row.querySelector('.time').textContent = formatMinutes(tab.minutes);
   row.querySelector('.go').addEventListener('click', async () => {
-    const res = await send({ type: 'focusTab', tabId: tab.id });
+    const res = await send({ type: 'focusTab', tab: { id: tab.id, url: tab.url } });
     // The report is a snapshot; a tab closed since then just leaves the list.
     if (res.gone) {
       row.style.opacity = '0.45';
       row.querySelector('.why').textContent = 'This tab has been closed since the summary was taken.';
+    } else if (!res.ok) {
+      row.querySelector('.why').textContent = `Could not open this tab: ${res.error}`;
     }
   });
   row.querySelector('.close').addEventListener('click', async () => {
-    await send({ type: 'closeTabs', tabIds: [tab.id] });
+    await send({ type: 'closeTabs', tabs: [{ id: tab.id, url: tab.url }] });
     row.remove();
   });
   return row;
@@ -350,7 +352,7 @@ async function closeMany(tabs) {
 
   const message = `Close ${pluralize(list.length, 'tab')}? That clears ${total} of estimated work.\n\n${preview}${more}`;
   if (!confirm(message)) return;
-  await send({ type: 'closeTabs', tabIds: list.map((t) => t.id) });
+  await send({ type: 'closeTabs', tabs: list.map((t) => ({ id: t.id, url: t.url })) });
   await refresh();
 }
 
