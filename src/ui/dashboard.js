@@ -1,5 +1,6 @@
 import { formatMinutes, formatAge, pluralize } from '../lib/format.js';
 import { TASK_TYPES } from '../lib/taxonomy.js';
+import { reportToTsv } from '../lib/export.js';
 import {
   send,
   renderWarnings,
@@ -20,6 +21,7 @@ const els = {
   budgetLegend: document.getElementById('budgetLegend'),
   quickWins: document.getElementById('quickWins'),
   ledgerBody: document.getElementById('ledgerBody'),
+  copyList: document.getElementById('copyList'),
   analyze: document.getElementById('analyze'),
   cancel: document.getElementById('cancel'),
   progress: document.getElementById('progress'),
@@ -632,6 +634,20 @@ els.cancel.addEventListener('click', async () => {
   els.cancel.disabled = false;
 });
 document.getElementById('options').addEventListener('click', () => chrome.runtime.openOptionsPage());
+
+els.copyList.addEventListener('click', async () => {
+  if (!report) return;
+  try {
+    await navigator.clipboard.writeText(reportToTsv(report));
+    els.copyList.textContent = `Copied ${pluralize(report.items.length, 'tab')}`;
+  } catch (error) {
+    els.copyList.textContent = 'Copy failed';
+    renderWarnings(els.warnings, [`Could not copy the list: ${error.message}`]);
+  }
+  setTimeout(() => {
+    els.copyList.textContent = 'Copy list';
+  }, 1500);
+});
 
 for (const button of document.querySelectorAll('#groupBy button')) {
   button.addEventListener('click', () => {
