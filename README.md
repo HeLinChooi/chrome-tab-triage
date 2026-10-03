@@ -1,5 +1,7 @@
 # Tab Triage
 
+> **This repository is archived.** Tab Triage now lives in [chrome-extensions/tab-triage](https://github.com/HeLinChooi/chrome-extensions/tree/main/tab-triage), together with my other Chrome extensions. Its full commit history moved there too.
+
 A Chrome extension that answers one question about your open tabs: **how long would it
 actually take to clear these?**
 
